@@ -1,0 +1,9 @@
+{
+  "name": "SpellBrigadeMinimap",
+  "version_number": "1.0.0",
+  "website_url": "",
+  "description": "A corner minimap: level layout, enemies (elites highlighted), objectives, the boss, pickups, teammates, and MoreEvents targets.",
+  "dependencies": [
+    "BepInEx-BepInExPack_IL2CPP-6.0.788"
+  ]
+}
