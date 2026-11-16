@@ -46,7 +46,9 @@ namespace SpellBrigadeMinimap
         const int MaxRetries = 10;
         const int GameViewWidth = 480;
         const float Trim = 0.05f;
-        const int MinObstacleCells = 8;      // smaller holes (pebbles, props) are drawn as ground
+        const int MinObstacleCells = 3;      // smaller holes (pebbles) are drawn as ground
+        const int ArenaSealRadius = 2;       // seals wall gaps up to 4 cells when separating the arena
+        const float MaxTintShift = 6f;       // the raw picture's tint is already close; only nudge it
 
         // Colours follow the game's HUD: near-black outlines and a cream highlight.
         static readonly MapPalette Palette = new MapPalette(
@@ -143,7 +145,7 @@ namespace SpellBrigadeMinimap
 
                 if (!flood.HasWork)
                 {
-                    classes = MapPainter.Classify(flood, MinObstacleCells);
+                    classes = ClassifyArena();
                     bool changed = Replace(MapPainter.Paint(flood, classes, Palette, Padding), FilterMode.Bilinear);
                     LogFinished(now);
                     TakePicture();
@@ -162,6 +164,41 @@ namespace SpellBrigadeMinimap
                 LogOnce.Error("reading the NavMesh (showing radar mode)", e);
                 return false;
             }
+        }
+
+        /// <summary>Ground / obstacle / outside, with NavMesh beyond the arena's walls counted as outside.</summary>
+        CellClass[] ClassifyArena()
+        {
+            bool[] band = null;
+            if (Mod.Settings.TrimOutsideArena.Value)
+            {
+                band = ArenaFinder.FindOuterBand(flood, ArenaSealRadius, out float kept);
+                Mod.Log.LogInfo(band != null
+                    ? $"Arena walls found: keeping {kept:P0} of the NavMesh, the rest is beyond the walls."
+                    : $"No enclosing arena wall found (arena would keep {kept:P0}); showing all of the NavMesh.");
+            }
+            var cls = MapPainter.Classify(flood, MinObstacleCells, band);
+            SaveCellMap(cls, band);
+            return cls;
+        }
+
+        /// <summary>Debug picture: grey = arena ground, brown = obstacle, blue = NavMesh beyond the walls.</summary>
+        void SaveCellMap(CellClass[] cls, bool[] band)
+        {
+            if (!Mod.Settings.SaveDebugImages.Value || !MapPainter.TryCrop(flood, Padding, out var crop)) return;
+            var img = new PixelBuffer(crop.Width, crop.Height);
+            int n = flood.Size;
+            for (int y = 0; y < crop.Height; y++)
+                for (int x = 0; x < crop.Width; x++)
+                {
+                    int i = (crop.Y + y) * n + crop.X + x;
+                    Rgba c = band != null && band[i] ? new Rgba(60, 110, 200)
+                           : cls[i] == CellClass.Walkable ? new Rgba(150, 150, 150)
+                           : cls[i] == CellClass.Obstacle ? new Rgba(150, 90, 40)
+                           : Rgba.Clear;
+                    img.SetPixel(x, y, c);
+                }
+            DebugImages.Save("0-cells", img);
         }
 
         void RetryOrGiveUp(float now)
@@ -215,20 +252,25 @@ namespace SpellBrigadeMinimap
                 {
                     // A ring around the screen center, upper 70% only: skips the player in the middle, the
                     // vignette at the edges, and the skill bar and health bar along the bottom (row 0 = bottom).
+                    // Vivid pixels (spell effects, flowers, enemies) are skipped too: the last test's sample
+                    // caught a fire spell and tinted the whole map yellow.
                     float cx = view.Width * 0.5f, cy = view.Height * 0.5f;
                     float rMin = view.Height * 0.15f, rMax = view.Height * 0.45f, bottom = view.Height * 0.3f;
                     var game = ColorMatch.Measure(view, (x, y) =>
                     {
                         if (y < bottom) return false;
                         float dx = x + 0.5f - cx, dy = y + 0.5f - cy, d2 = dx * dx + dy * dy;
-                        return d2 >= rMin * rMin && d2 <= rMax * rMax;
+                        if (d2 < rMin * rMin || d2 > rMax * rMax) return false;
+                        Rgba c = view.GetPixel(x, y);
+                        int hi = Math.Max(c.R, Math.Max(c.G, c.B)), lo = Math.Min(c.R, Math.Min(c.G, c.B));
+                        return hi - lo <= 110 && hi <= 235;
                     }, Trim);
                     int n = flood.Size;
                     var picture = ColorMatch.Measure(rawArt,
                         (x, y) => classes[(artCrop.Y + y) * n + artCrop.X + x] != CellClass.Outside, Trim);
                     if (game.Count > 100 && picture.Count > 100)
                     {
-                        art = ColorMatch.Transfer(rawArt, picture, game);
+                        art = ColorMatch.Transfer(rawArt, picture, game, MaxTintShift);
                         Mod.Log.LogInfo($"Matched level picture colours. Picture: {picture}. Game view: {game}.");
                         DebugImages.Save("3-level-picture-matched", art);
                     }

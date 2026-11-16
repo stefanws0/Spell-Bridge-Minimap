@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using SpellBrigadeMinimap.Core;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.VFX;
 using UObject = UnityEngine.Object;
 
@@ -38,6 +40,7 @@ namespace SpellBrigadeMinimap
             var go = new GameObject("SpellBrigadeMinimap_Snapshot");
             Camera cam = null;
             var hidden = new List<Renderer>();
+            var lensEffectsOff = new List<VolumeComponent>();
             try
             {
                 cam = go.AddComponent<Camera>();
@@ -56,11 +59,15 @@ namespace SpellBrigadeMinimap
                 go.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
 
                 HideMovingThings(hidden);
+                DisableLensEffects(lensEffectsOff);
+                UseGameColourGrading(cam);
                 try { cam.Render(); }
                 finally
                 {
                     foreach (var r in hidden)
                         if (r != null) r.enabled = true;
+                    foreach (var c in lensEffectsOff)
+                        if (c != null) c.active = true;
                 }
                 return PixelBuffer.Downsample(ReadBack(rt, w, h), w, h, ss);
             }
@@ -120,6 +127,65 @@ namespace SpellBrigadeMinimap
                 if (tex != null) UObject.Destroy(tex);
             }
         }
+
+        /// <summary>
+        /// Gives the picture the game's look: post-processing on, with the same volumes as the game camera
+        /// (colour grading, tonemapping). Without it, sand comes out pinkish instead of yellow.
+        /// </summary>
+        static void UseGameColourGrading(Camera cam)
+        {
+            try
+            {
+                var data = CameraExtensions.GetUniversalAdditionalCameraData(cam);
+                data.renderPostProcessing = true;
+                var main = Camera.main;
+                if (main != null)
+                {
+                    var mainData = CameraExtensions.GetUniversalAdditionalCameraData(main);
+                    data.volumeLayerMask = mainData.volumeLayerMask;
+                    data.volumeTrigger = mainData.volumeTrigger != null ? mainData.volumeTrigger : main.transform;
+                    if (!gradingLogged)
+                    {
+                        gradingLogged = true;
+                        Mod.Log.LogInfo($"Game camera post-processing is {(mainData.renderPostProcessing ? "on" : "off")}; using it for the level picture.");
+                    }
+                }
+                CameraExtensions.UpdateVolumeStack(cam, data);
+            }
+            catch (Exception e) { LogOnce.Error("using the game's colour grading for the level picture", e); }
+        }
+
+        static bool gradingLogged;
+
+        /// <summary>Switches off camera-lens effects (vignette, depth of field, ...) in every active volume for one render.</summary>
+        static void DisableLensEffects(List<VolumeComponent> disabled)
+        {
+            try
+            {
+                var volumes = UObject.FindObjectsOfType<Volume>();
+                for (int v = 0; v < volumes.Length; v++)
+                {
+                    var volume = volumes[v];
+                    if (volume == null || !volume.isActiveAndEnabled) continue;
+                    var profile = volume.HasInstantiatedProfile() ? volume.profile : volume.sharedProfile;
+                    if (profile == null || profile.components == null) continue;
+                    var components = profile.components;
+                    for (int i = 0; i < components.Count; i++)
+                    {
+                        var c = components[i];
+                        if (c == null || !c.active || !IsLensEffect(c)) continue;
+                        c.active = false;
+                        disabled.Add(c);
+                    }
+                }
+            }
+            catch (Exception e) { LogOnce.Error("turning off lens effects for the level picture", e); }
+        }
+
+        static bool IsLensEffect(VolumeComponent c)
+            => c.TryCast<Vignette>() != null || c.TryCast<DepthOfField>() != null || c.TryCast<MotionBlur>() != null
+            || c.TryCast<ChromaticAberration>() != null || c.TryCast<LensDistortion>() != null
+            || c.TryCast<PaniniProjection>() != null || c.TryCast<FilmGrain>() != null;
 
         static void HideMovingThings(List<Renderer> hidden)
         {
