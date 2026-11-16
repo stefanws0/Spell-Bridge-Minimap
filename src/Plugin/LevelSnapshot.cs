@@ -60,28 +60,6 @@ namespace SpellBrigadeMinimap
             return PixelBuffer.Downsample(bytes, cellsW * ss, cellsH * ss, ss);
         }
 
-        /// <summary>
-        /// Renders only <paramref name="layer"/> straight down, with the game's colour grading, over a key colour.
-        /// Each cell becomes the average of what was drawn in it; cells where nothing was drawn are transparent.
-        /// </summary>
-        public static PixelBuffer CaptureLayerPicture(float originX, float originZ, int cellsW, int cellsH, float cellSize, float groundY, int layer)
-        {
-            int ss = SupersampleFor(cellsW, cellsH);
-            var lensEffectsOff = new List<VolumeComponent>();
-            byte[] bytes = RenderTopDown(originX, originZ, cellsW, cellsH, cellSize, groundY, ss, 1 << layer, new Color(1f, 0f, 1f, 1f),
-                cam =>
-                {
-                    DisableLensEffects(lensEffectsOff);
-                    UseGameColourGrading(cam);
-                },
-                () =>
-                {
-                    foreach (var c in lensEffectsOff)
-                        if (c != null) c.active = true;
-                });
-            return PixelBuffer.DownsampleIgnoringKey(bytes, cellsW * ss, cellsH * ss, ss, CoverageKey, 24);
-        }
-
         /// <summary>The highest layer from 8 up that no renderer in the scene uses, or -1.</summary>
         public static int FreeLayer()
         {

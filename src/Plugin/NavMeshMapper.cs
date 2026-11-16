@@ -24,13 +24,12 @@ namespace SpellBrigadeMinimap
     /// Builds the minimap's picture of the level.
     ///
     /// Layout: flood-fills the NavMesh cell by cell (SamplePosition is the NavMesh query this build ships), with a
-    /// physics ray per cell for rocks the NavMesh ignores; then renders every solid mesh alone for its exact
+    /// physics ray per cell for rocks the NavMesh ignores; then renders every rock and wall alone for its exact
     /// footprint, finds the arena inside its walls, and sorts cells into ground, obstacle and outside.
     ///
-    /// Look (pixelated style): a top-down picture of the ground layer (terrain, flat ground surfaces, decals)
-    /// over a full top-down picture with effects hidden, brightness-matched to the game camera once the player
-    /// has landed, then painted over with what the game camera actually shows, every few seconds, as the
-    /// player explores.
+    /// Look (pixelated style): a top-down picture of the level with players, enemies and ground effects hidden,
+    /// brightness-matched to the game camera once the player has landed. Optionally (off by default) painted over
+    /// every few seconds with what the game camera actually shows.
     /// </summary>
     internal sealed class NavMeshMapper
     {
@@ -63,7 +62,6 @@ namespace SpellBrigadeMinimap
         const float PaintSeconds = 2.5f;     // how often the game view is painted onto the map
         const float PaintMinSamples = 3f;
         const float OccluderHeight = 4f;     // rays crossing an obstacle this close to the ground show its side
-        const int DarkGround = 95;           // average ground brightness below which obstacles are drawn light
 
         static readonly MapPalette FlatPalette = new MapPalette(
             ground: new Rgba(58, 66, 74), groundEdge: new Rgba(253, 248, 206),
@@ -72,10 +70,6 @@ namespace SpellBrigadeMinimap
         static readonly MapPalette ArtPalette = new MapPalette(
             ground: default, groundEdge: new Rgba(253, 248, 206),
             obstacle: new Rgba(16, 16, 18), obstacleEdge: new Rgba(16, 16, 18));
-        // On dark maps (the astral world) black obstacles vanish, so they are drawn as light stone instead.
-        static readonly MapPalette DarkGroundPalette = new MapPalette(
-            ground: default, groundEdge: new Rgba(253, 248, 206),
-            obstacle: new Rgba(200, 196, 184), obstacleEdge: new Rgba(16, 16, 18));
 
         static readonly GroundProbe Probe = ProbeNavMesh;
         static bool usePhysics = true;
@@ -221,7 +215,7 @@ namespace SpellBrigadeMinimap
             {
                 float ox = flood.OriginX + crop.X * CellSize, oz = flood.OriginZ + crop.Y * CellSize;
                 return SceneryScan.Run(ox, oz, ox + crop.Width * CellSize, oz + crop.Height * CellSize,
-                    Mod.Settings.GroundKeywords.Value, Mod.Settings.SaveDebugImages.Value);
+                    Mod.Settings.ObstacleKeywords.Value, Mod.Settings.SaveDebugImages.Value);
             }
             catch (Exception e)
             {
@@ -340,60 +334,14 @@ namespace SpellBrigadeMinimap
             {
                 var sw = Stopwatch.StartNew();
                 float ox = flood.OriginX + artCrop.X * CellSize, oz = flood.OriginZ + artCrop.Y * CellSize;
-                var full = LevelSnapshot.CaptureLevel(ox, oz, artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight, scenery?.Effects);
-                DebugImages.Save("1-level-picture", full);
-                var ground = GroundPicture(ox, oz, full);
-                rawArt = ground != null ? ArtFilter.Overlay(full, ground) : full;
-                Mod.Log.LogInfo($"Captured level picture: {artCrop.Width} x {artCrop.Height} pixels"
-                    + $"{(ground != null ? ", ground layer on top" : "")} in {sw.ElapsedMilliseconds} ms.");
+                rawArt = LevelSnapshot.CaptureLevel(ox, oz, artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight, scenery?.Effects);
+                DebugImages.Save("1-level-picture", rawArt);
+                Mod.Log.LogInfo($"Captured level picture: {artCrop.Width} x {artCrop.Height} pixels in {sw.ElapsedMilliseconds} ms.");
             }
             catch (Exception e)
             {
                 artFailed = true;
                 LogOnce.Error("taking the level picture (keeping the flat map)", e);
-            }
-        }
-
-        /// <summary>
-        /// The ground on its own (terrain, flat ground surfaces, decals): no grass tufts, flowers, shadows from rocks,
-        /// spawn effects or tornadoes. Null if there is none, or if it came out unlit.
-        /// </summary>
-        PixelBuffer GroundPicture(float ox, float oz, PixelBuffer full)
-        {
-            if (scenery == null || scenery.Ground.Count == 0) return null;
-            try
-            {
-                int layer = LevelSnapshot.FreeLayer();
-                if (layer < 0) return null;
-                var pic = LevelSnapshot.OnLayer(scenery.Ground, layer,
-                    () => LevelSnapshot.CaptureLayerPicture(ox, oz, artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight, layer));
-                DebugImages.Save("1a-ground-picture", pic);
-
-                // If the lights skip that layer, the ground comes out dark: then keep the full picture.
-                double groundLuma = 0, fullLuma = 0;
-                int count = 0;
-                for (int y = 0; y < pic.Height; y++)
-                    for (int x = 0; x < pic.Width; x++)
-                    {
-                        Rgba g = pic.GetPixel(x, y);
-                        if (g.A == 0) continue;
-                        Rgba f = full.GetPixel(x, y);
-                        groundLuma += g.R * 0.299 + g.G * 0.587 + g.B * 0.114;
-                        fullLuma += f.R * 0.299 + f.G * 0.587 + f.B * 0.114;
-                        count++;
-                    }
-                if (count == 0) return null;
-                if (groundLuma < fullLuma * 0.45)
-                {
-                    Mod.Log.LogWarning("The ground-only picture came out much darker than the full one (unlit?); using the full picture.");
-                    return null;
-                }
-                return pic;
-            }
-            catch (Exception e)
-            {
-                LogOnce.Error("taking the ground picture", e);
-                return null;
             }
         }
 
@@ -480,8 +428,7 @@ namespace SpellBrigadeMinimap
                 var art = baseArt;
                 if (painter != null) art = ArtFilter.Overlay(art, painter.Result(PaintMinSamples));
                 art = ArtFilter.CalmGrass(art, CalmRadius, CalmStrength, CalmLift);
-                var palette = GroundIsDark(art) ? DarkGroundPalette : ArtPalette;
-                var painted = MapPainter.PaintArt(flood, classes, art, palette, artCrop, Mod.Settings.HighlightObstacles.Value);
+                var painted = MapPainter.PaintArt(flood, classes, art, ArtPalette, artCrop, Mod.Settings.HighlightObstacles.Value);
                 if (!savedFinal)
                 {
                     savedFinal = true;
@@ -496,21 +443,6 @@ namespace SpellBrigadeMinimap
                 LogOnce.Error("showing the level picture (keeping the flat map)", e);
                 return false;
             }
-        }
-
-        bool GroundIsDark(PixelBuffer art)
-        {
-            int n = flood.Size, count = 0;
-            double luma = 0;
-            for (int y = 0; y < art.Height; y++)
-                for (int x = 0; x < art.Width; x++)
-                {
-                    if (classes[(artCrop.Y + y) * n + artCrop.X + x] != CellClass.Walkable) continue;
-                    Rgba c = art.GetPixel(x, y);
-                    luma += c.R * 0.299 + c.G * 0.587 + c.B * 0.114;
-                    count++;
-                }
-            return count > 0 && luma / count < DarkGround;
         }
 
         bool Replace(PaintedMap painted, FilterMode filter)

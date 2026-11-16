@@ -4,28 +4,25 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEngine;
-using UnityEngine.Rendering.Universal;
 using UObject = UnityEngine.Object;
 
 namespace SpellBrigadeMinimap
 {
     /// <summary>
     /// One pass over what lies in the mapped area, sorting meshes into:
-    /// solid scenery (a solid collider and at least <see cref="MinSolidHeight"/> tall: rocks, walls, crystals),
-    /// ground surfaces (flat meshes named like ground: lava, ice patches, water, paths), and
-    /// ground effects to hide from pictures (respawn circles, gore, tornadoes, ...).
-    /// Terrains and ground decals are collected too. Optionally writes a report of everything it saw.
+    /// solid scenery, i.e. rocks and walls you can't walk through (at least <see cref="MinSolidHeight"/> tall, and either
+    /// a solid collider on the object or a name from the obstacle keywords: many rocks keep their collider elsewhere),
+    /// and ground effects to hide from pictures (respawn circles, gore, tornadoes, ...).
+    /// Optionally writes a report of everything it saw.
     /// </summary>
     internal sealed class SceneryScan
     {
         const float MinSolidHeight = 1f;
-        const float MaxSurfaceHeight = 0.6f;
         static readonly string[] EffectWords = { "respawn", "gore", "splash", "crosshair", "blood", "tornado", "hazard" };
+        static readonly string[] NeverSolidWords = { "pebble", "grass", "bush", "flower", "tree", "foliage", "dandilion", "dandelion" };
 
         public readonly List<Renderer> Solid = new List<Renderer>();
-        public readonly List<Renderer> Surfaces = new List<Renderer>();
         public readonly List<Renderer> Effects = new List<Renderer>();
-        public readonly List<GameObject> Ground = new List<GameObject>(); // terrains, surfaces and decals: the "ground picture"
 
         sealed class Row
         {
@@ -34,10 +31,10 @@ namespace SpellBrigadeMinimap
             public string Kind, Collider;
         }
 
-        public static SceneryScan Run(float originX, float originZ, float maxX, float maxZ, string groundKeywordList, bool writeReport)
+        public static SceneryScan Run(float originX, float originZ, float maxX, float maxZ, string obstacleKeywordList, bool writeReport)
         {
             var scan = new SceneryScan();
-            string[] groundKeys = (groundKeywordList ?? "").Split(',').Select(k => k.Trim().ToLowerInvariant()).Where(k => k.Length > 0).ToArray();
+            string[] obstacleKeys = (obstacleKeywordList ?? "").Split(',').Select(k => k.Trim().ToLowerInvariant()).Where(k => k.Length > 0).ToArray();
             var rows = writeReport ? new Dictionary<string, Row>() : null;
 
             var meshes = UObject.FindObjectsOfType<MeshRenderer>();
@@ -50,12 +47,15 @@ namespace SpellBrigadeMinimap
                 if (c.x < originX || c.x > maxX || c.z < originZ || c.z > maxZ) continue;
                 string mat = NameOf(r.sharedMaterial), mesh = NameOf(r.GetComponent<MeshFilter>()?.sharedMesh), obj = Simplify(r.gameObject.name);
 
-                string kind;
+                string kind = "";
                 Collider col = null;
                 if (Matches(EffectWords, mat, mesh, obj)) { scan.Effects.Add(r); kind = "effect"; }
-                else if (b.size.y <= MaxSurfaceHeight && Matches(groundKeys, mat, mesh, obj)) { scan.Surfaces.Add(r); scan.Ground.Add(r.gameObject); kind = "ground"; }
-                else if (b.size.y >= MinSolidHeight && (col = SolidCollider(r.gameObject)) != null) { scan.Solid.Add(r); kind = "SOLID"; }
-                else kind = "";
+                else if (b.size.y >= MinSolidHeight && !Matches(NeverSolidWords, mat, mesh, obj))
+                {
+                    if (Matches(obstacleKeys, mat, mesh, obj)) kind = "SOLID";
+                    else if ((col = SolidCollider(r.gameObject)) != null) kind = "SOLID";
+                    if (kind == "SOLID") scan.Solid.Add(r);
+                }
 
                 if (rows != null)
                 {
@@ -68,41 +68,13 @@ namespace SpellBrigadeMinimap
                 }
             }
 
-            int decals = 0;
-            try
-            {
-                var projectors = UObject.FindObjectsOfType<DecalProjector>();
-                for (int i = 0; i < projectors.Length; i++)
-                {
-                    var d = projectors[i];
-                    if (d == null || !d.isActiveAndEnabled) continue;
-                    Vector3 p = d.transform.position;
-                    if (p.x < originX || p.x > maxX || p.z < originZ || p.z > maxZ) continue;
-                    if (Matches(EffectWords, NameOf(d.material), d.gameObject.name)) continue;
-                    scan.Ground.Add(d.gameObject);
-                    decals++;
-                }
-            }
-            catch (Exception e) { LogOnce.Error("listing decals", e); }
-
-            int terrains = 0;
-            try
-            {
-                var all = Terrain.activeTerrains;
-                if (all != null)
-                    for (int i = 0; i < all.Length; i++)
-                        if (all[i] != null) { scan.Ground.Add(all[i].gameObject); terrains++; }
-            }
-            catch (Exception e) { LogOnce.Error("listing terrains", e); }
-
-            Mod.Log.LogInfo($"Scenery: {scan.Solid.Count} solid meshes, {scan.Surfaces.Count} ground surfaces, {decals} decals, "
-                + $"{terrains} terrains, {scan.Effects.Count} ground effects hidden from pictures.");
+            Mod.Log.LogInfo($"Scenery: {scan.Solid.Count} rocks and walls, {scan.Effects.Count} ground effects hidden from pictures.");
 
             if (rows != null)
             {
                 var sb = new StringBuilder();
                 sb.AppendLine($"Objects in the mapped area, {originX:0},{originZ:0} to {maxX:0},{maxZ:0}.");
-                sb.AppendLine($"Ground keywords: {string.Join(", ", groundKeys)}. Terrains: {terrains}. Decals used as ground: {decals}.");
+                sb.AppendLine($"Obstacle keywords: {string.Join(", ", obstacleKeys)}.");
                 sb.AppendLine("kind | material | mesh | object  ->  count, footprint m2, tallest, layer, collider(type@layer)");
                 foreach (var kv in rows.OrderByDescending(kv => kv.Value.Area).Take(300))
                     sb.AppendLine($"{kv.Value.Kind,-6} | {kv.Key}  ->  {kv.Value.Count}, {kv.Value.Area:0}, {kv.Value.Tallest:0.0}, {kv.Value.Layer}, {kv.Value.Collider}");
