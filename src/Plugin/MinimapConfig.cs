@@ -18,6 +18,7 @@ namespace SpellBrigadeMinimap
         public readonly ConfigEntry<float> Radius, MinRadius, MaxRadius;
         public readonly ConfigEntry<bool> RotateWithCamera;
         public readonly ConfigEntry<bool> ShowEnemies, ShowObjectives, ShowPickups, ShowTeammates, ShowMoreEvents;
+        public readonly ConfigEntry<bool> HideUndiscoveredObjectives, SaveDebugImages;
 
         public MinimapConfig(ConfigFile f)
         {
@@ -45,6 +46,9 @@ namespace SpellBrigadeMinimap
             ShowPickups = f.Bind("Layers", "ShowPickups", true, "Artifact, health and magnet pickups the game points at.");
             ShowTeammates = f.Bind("Layers", "ShowTeammates", true, "Other players.");
             ShowMoreEvents = f.Bind("Layers", "ShowMoreEvents", true, "MoreEvents targets and zones (only when MoreEvents is installed).");
+            HideUndiscoveredObjectives = f.Bind("Layers", "HideUndiscoveredObjectives", true, "Only show an objective once someone in the party has had it on screen. Discoveries are shared with other players who run this mod, through the host.");
+
+            SaveDebugImages = f.Bind("Debug", "SaveDebugImages", false, "Save the level picture, the game-view colour sample and the finished minimap as PNGs in BepInEx/minimap-debug each run.");
         }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 using NVec2 = System.Numerics.Vector2;
 
@@ -18,13 +19,15 @@ namespace SpellBrigadeMinimap
         public bool Elite;
     }
 
-    internal enum PoiKind { Objective, Boss, Downed, Danger, Pickup }
+    internal enum PoiKind { Objective, Boss, Downed, Danger, Pickup, Health }
 
     /// <summary>A point of interest the game itself draws an off-screen pointer for.</summary>
     internal sealed class Poi
     {
         public Transform Target;
         public PoiKind Kind;
+        /// <summary>Same on every player's game: the target's NetworkObject id, or its rounded position.</summary>
+        public ulong Key;
         public Sprite Sprite;
         public Color Color;
 
@@ -216,7 +219,7 @@ namespace SpellBrigadeMinimap
                 if (target == null || sp == null) continue;
                 if (!TryKind(sp.pointerType, out PoiKind kind)) continue;
 
-                var poi = new Poi { Target = target, Kind = kind, Color = Color.white };
+                var poi = new Poi { Target = target, Kind = kind, Color = Color.white, Key = KeyOf(target) };
                 var images = sp.iconImages;
                 if (images != null)
                     for (int i = 0; i < images.Count; i++)
@@ -233,6 +236,19 @@ namespace SpellBrigadeMinimap
             }
         }
 
+        static ulong KeyOf(Transform t)
+        {
+            try
+            {
+                var net = t.GetComponentInParent<NetworkObject>();
+                if (net != null) return net.NetworkObjectId;
+            }
+            catch (Exception e) { LogOnce.Error("identifying an objective", e); }
+            Vector3 p = t.position;
+            ulong x = (ulong)((long)Math.Round(p.x) & 0xFFFFFFF), z = (ulong)((long)Math.Round(p.z) & 0xFFFFFFF);
+            return 0x8000000000000000UL | (x << 28) | z;
+        }
+
         static bool TryKind(PointerType t, out PoiKind kind)
         {
             switch (t)
@@ -242,8 +258,8 @@ namespace SpellBrigadeMinimap
                 case PointerType.Boss: kind = PoiKind.Boss; return true;
                 case PointerType.ReviveZone: kind = PoiKind.Downed; return true;
                 case PointerType.Danger: kind = PoiKind.Danger; return true;
+                case PointerType.HealthPickup: kind = PoiKind.Health; return true;
                 case PointerType.ArtifactPickup:
-                case PointerType.HealthPickup:
                 case PointerType.MagnetPickup: kind = PoiKind.Pickup; return true;
                 default: kind = PoiKind.Objective; return false; // Player pointers: players are drawn separately.
             }

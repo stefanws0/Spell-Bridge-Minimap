@@ -16,7 +16,7 @@ namespace SpellBrigadeMinimap
     {
         const int Supersample = 4;          // render pixels per cell side, averaged down to one
         const int MaxTextureSide = 2048;
-        const float CameraHeight = 30f;     // above the highest ground
+        const float CameraHeight = 12f;     // above the highest ground; low, because fog grows with distance
         const int UiLayer = 5;
         static bool fogLogged;
 

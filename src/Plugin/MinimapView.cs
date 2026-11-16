@@ -12,7 +12,10 @@ namespace SpellBrigadeMinimap
         const int DotTextureSize = 128;
         const float SquareBorder = 2f;
         static readonly Color FrameColor = new Color(0.85f, 0.88f, 0.95f, 0.9f);
-        static readonly Color Background = new Color(0.06f, 0.07f, 0.1f, 0.75f);
+        static readonly Color Background = new Color(0.09f, 0.09f, 0.1f, 0.92f);
+        static readonly Color BadgeColor = new Color(0.08f, 0.08f, 0.09f, 0.95f);
+        static readonly Color Cream = new Color(253f / 255f, 248f / 255f, 206f / 255f, 1f);
+        static readonly Color HealthColor = new Color(0.95f, 0.25f, 0.3f, 1f);
         static readonly Rgba EnemyColor = new Rgba(235, 64, 52);
         static readonly Rgba EliteColor = new Rgba(255, 165, 40);
         static readonly Color ObjectiveColor = new Color(1f, 0.85f, 0.3f, 1f);
@@ -33,7 +36,7 @@ namespace SpellBrigadeMinimap
         readonly Image you;
         readonly PixelBuffer dotPixels = new PixelBuffer(DotTextureSize, DotTextureSize);
         readonly Texture2D dotTexture;
-        readonly Sprite disc, ring, arrow, diamond, roundShape;
+        readonly Sprite disc, ring, arrow, diamond, roundShape, badgeRing;
 
         BakedMap map;
         bool visible = true, dotsEmpty, round;
@@ -50,6 +53,7 @@ namespace SpellBrigadeMinimap
             arrow = SpriteFactory.ToSprite(ShapeSprites.Arrow(32));
             diamond = SpriteFactory.ToSprite(ShapeSprites.Diamond(32, 0.1f));
             roundShape = SpriteFactory.ToSprite(ShapeSprites.Disc(256, 0f));
+            badgeRing = SpriteFactory.ToSprite(ShapeSprites.Ring(64, 0.12f));
 
             root = new GameObject("SpellBrigadeMinimap");
             Object.DontDestroyOnLoad(root);
@@ -117,7 +121,7 @@ namespace SpellBrigadeMinimap
             layout.enabled = baked != null;
         }
 
-        public void Render(WorldScanner s, List<EventMarker> markers, float yaw, float radius)
+        public void Render(WorldScanner s, List<EventMarker> markers, ObjectiveDiscovery discovery, float yaw, float radius)
         {
             ApplyLayout();
             group.alpha = cfg.Opacity.Value;
@@ -146,7 +150,7 @@ namespace SpellBrigadeMinimap
             DrawEnemies(s, view);
 
             icons.Begin();
-            foreach (var poi in s.Pois) DrawPoi(poi, view);
+            foreach (var poi in s.Pois) DrawPoi(poi, view, discovery);
             if (cfg.ShowMoreEvents.Value)
                 foreach (var m in markers)
                     if (!m.Zone) DrawPoint(diamond, m.Color, MapMath.WorldToPanel(view, m.Pos), 16f, half, clamp: true);
@@ -184,17 +188,33 @@ namespace SpellBrigadeMinimap
             dotsEmpty = !any;
         }
 
-        void DrawPoi(Poi poi, in MapView view)
+        void DrawPoi(Poi poi, in MapView view, ObjectiveDiscovery discovery)
         {
             if (poi.Target == null) return;
-            bool pickup = poi.Kind == PoiKind.Pickup;
+            bool pickup = poi.Kind == PoiKind.Pickup || poi.Kind == PoiKind.Health;
             if (pickup ? !cfg.ShowPickups.Value : !cfg.ShowObjectives.Value) return;
+            if (poi.Kind == PoiKind.Objective && cfg.HideUndiscoveredObjectives.Value && !discovery.IsKnown(poi.Key)) return;
 
             Vector3 w = poi.Target.position;
             NVec2 p = MapMath.WorldToPanel(view, new NVec2(w.x, w.z));
-            Sprite sprite = poi.Sprite != null ? poi.Sprite : (pickup ? disc : diamond);
+            if (pickup)
+            {
+                // Pickups sit on a dark badge (the HUD's circle style) so they read on any ground;
+                // health potions get a bigger badge with a cream ring.
+                if (!(round ? MapMath.IsInsideCircle(p, view.HalfSize) : MapMath.IsInside(p, view.HalfSize))) return;
+                bool health = poi.Kind == PoiKind.Health;
+                float badge = health ? 24f : 18f;
+                Vector2 at = ToUnity(p);
+                icons.Place(disc, BadgeColor, at, badge, 0f);
+                if (health) icons.Place(badgeRing, Cream, at, badge, 0f);
+                if (poi.Sprite != null) icons.Place(poi.Sprite, poi.Color, at, badge * 0.7f, 0f);
+                else icons.Place(disc, KindColor(poi.Kind), at, badge * 0.5f, 0f);
+                return;
+            }
+
+            Sprite sprite = poi.Sprite != null ? poi.Sprite : diamond;
             Color color = poi.Sprite != null ? poi.Color : KindColor(poi.Kind);
-            float size = poi.Kind == PoiKind.Boss ? 24f : pickup ? 14f : 20f;
+            float size = poi.Kind == PoiKind.Boss ? 24f : 20f;
             DrawPoint(sprite, color, p, size, view.HalfSize, poi.ClampToEdge);
         }
 
@@ -231,6 +251,7 @@ namespace SpellBrigadeMinimap
                 case PoiKind.Downed: return DownedColor;
                 case PoiKind.Danger: return DangerColor;
                 case PoiKind.Pickup: return PickupColor;
+                case PoiKind.Health: return HealthColor;
                 default: return ObjectiveColor;
             }
         }

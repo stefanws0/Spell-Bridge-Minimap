@@ -46,12 +46,14 @@ namespace SpellBrigadeMinimap
         const int MaxRetries = 10;
         const int GameViewWidth = 480;
         const float Trim = 0.05f;
+        const int MinObstacleCells = 8;      // smaller holes (pebbles, props) are drawn as ground
 
+        // Colours follow the game's HUD: near-black outlines and a cream highlight.
         static readonly MapPalette Palette = new MapPalette(
-            ground: new Rgba(78, 92, 110),
-            groundEdge: new Rgba(190, 202, 220),
-            obstacle: new Rgba(128, 100, 72),
-            obstacleEdge: new Rgba(214, 176, 120));
+            ground: new Rgba(58, 66, 74),
+            groundEdge: new Rgba(253, 248, 206),
+            obstacle: new Rgba(34, 37, 42),
+            obstacleEdge: new Rgba(16, 16, 18));
 
         static readonly GroundProbe Probe = ProbeNavMesh;
 
@@ -141,7 +143,7 @@ namespace SpellBrigadeMinimap
 
                 if (!flood.HasWork)
                 {
-                    classes = MapPainter.Classify(flood);
+                    classes = MapPainter.Classify(flood, MinObstacleCells);
                     bool changed = Replace(MapPainter.Paint(flood, classes, Palette, Padding), FilterMode.Bilinear);
                     LogFinished(now);
                     TakePicture();
@@ -192,6 +194,7 @@ namespace SpellBrigadeMinimap
                     flood.OriginX + artCrop.X * CellSize, flood.OriginZ + artCrop.Y * CellSize,
                     artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight);
                 Mod.Log.LogInfo($"Captured level picture: {artCrop.Width} x {artCrop.Height} pixels in {sw.ElapsedMilliseconds} ms.");
+                DebugImages.Save("1-level-picture", rawArt);
             }
             catch (Exception e)
             {
@@ -207,14 +210,16 @@ namespace SpellBrigadeMinimap
             try
             {
                 var view = LevelSnapshot.CaptureGameView(GameViewWidth);
+                DebugImages.Save("2-game-view", view);
                 if (view != null)
                 {
-                    // A ring around the screen center: skips the player and their landing splash in the middle,
-                    // and the vignette and HUD at the edges.
+                    // A ring around the screen center, upper 70% only: skips the player in the middle, the
+                    // vignette at the edges, and the skill bar and health bar along the bottom (row 0 = bottom).
                     float cx = view.Width * 0.5f, cy = view.Height * 0.5f;
-                    float rMin = view.Height * 0.2f, rMax = view.Height * 0.45f;
+                    float rMin = view.Height * 0.15f, rMax = view.Height * 0.45f, bottom = view.Height * 0.3f;
                     var game = ColorMatch.Measure(view, (x, y) =>
                     {
+                        if (y < bottom) return false;
                         float dx = x + 0.5f - cx, dy = y + 0.5f - cy, d2 = dx * dx + dy * dy;
                         return d2 >= rMin * rMin && d2 <= rMax * rMax;
                     }, Trim);
@@ -225,6 +230,7 @@ namespace SpellBrigadeMinimap
                     {
                         art = ColorMatch.Transfer(rawArt, picture, game);
                         Mod.Log.LogInfo($"Matched level picture colours. Picture: {picture}. Game view: {game}.");
+                        DebugImages.Save("3-level-picture-matched", art);
                     }
                 }
             }
@@ -233,6 +239,7 @@ namespace SpellBrigadeMinimap
             try
             {
                 var painted = MapPainter.PaintArt(flood, classes, art, Palette, artCrop, Mod.Settings.HighlightObstacles.Value);
+                DebugImages.Save("4-minimap", painted.Image);
                 return Replace(painted, FilterMode.Point);
             }
             catch (Exception e)

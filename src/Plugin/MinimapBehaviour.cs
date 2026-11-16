@@ -19,6 +19,7 @@ namespace SpellBrigadeMinimap
         readonly WorldScanner scanner = new WorldScanner();
         readonly NavMeshMapper mapper = new NavMeshMapper();
         readonly MoreEventsBridge bridge = new MoreEventsBridge();
+        readonly ObjectiveDiscovery discovery = new ObjectiveDiscovery();
         readonly List<EventMarker> markers = new List<EventMarker>();
         IntPtr runPtr;
         float radius, runStartedAt = -1f, groundedSince = -1f, nextSpawnPointSearch;
@@ -63,6 +64,7 @@ namespace SpellBrigadeMinimap
             if (rm.Pointer != runPtr) StartRun(rm);
 
             scanner.Tick(now, cfg.ShowEnemies.Value, cfg.ShowObjectives.Value || cfg.ShowPickups.Value);
+            discovery.Tick(now, scanner.Pois);
 
             // Map the level as early as possible: from the player (even mid-air while dropping in), or from a
             // spawn point in the level if the player hasn't appeared yet.
@@ -88,7 +90,7 @@ namespace SpellBrigadeMinimap
             else markers.Clear();
 
             view.SetVisible(true);
-            view.Render(scanner, markers, cfg.RotateWithCamera.Value ? CameraYaw() : 0f, radius);
+            view.Render(scanner, markers, discovery, cfg.RotateWithCamera.Value ? CameraYaw() : 0f, radius);
         }
 
         bool TryFindSpawnPoint(float now, out Vector3 point)
@@ -108,6 +110,7 @@ namespace SpellBrigadeMinimap
             EndRun();
             runPtr = rm.Pointer;
             scanner.ResetRun(rm);
+            DebugImages.BeginRun();
             runStartedAt = groundedSince = -1f;
             spawnPoint = null;
             nextSpawnPointSearch = 0f;
@@ -120,6 +123,7 @@ namespace SpellBrigadeMinimap
             runPtr = IntPtr.Zero;
             view.SetMap(null);
             mapper.Reset();
+            discovery.Reset();
         }
 
         void HandleKeys(MinimapConfig cfg)

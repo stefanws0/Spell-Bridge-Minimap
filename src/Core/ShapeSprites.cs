@@ -58,14 +58,20 @@ namespace SpellBrigadeMinimap.Core
             float ringIn = 0.5f - BezelRing;
             if (d > 0.5f) return Rgba.Clear;
             if (d > ringIn) return BezelBlack;
+
+            // Inner shadow, with the rim light laid over it; the light fades smoothly up the sides.
+            float t = (ringIn - d) / BezelShadow;
+            float shadow = t < 1f ? 0.45f * (1f - t) : 0f;
+            float light = 0f;
             if (d > ringIn - BezelRimLight)
             {
-                float light = Math.Max(0f, Math.Min(1f, (0.55f - v) * 2f));
-                if (light > 0.02f) return new Rgba(RimLight.R, RimLight.G, RimLight.B, (byte)(217 * light));
+                float s = Math.Max(0f, Math.Min(1f, (0.6f - v) / 0.45f));
+                light = 0.85f * s * s * (3f - 2f * s);
             }
-            float t = (ringIn - d) / BezelShadow;
-            if (t >= 1f) return Rgba.Clear;
-            return new Rgba(0, 0, 0, (byte)(115 * (1f - t)));
+            float alpha = light + shadow * (1f - light);
+            if (alpha <= 0.004f) return Rgba.Clear;
+            float k = light / alpha; // share of the light in the mixed colour (the shadow is black)
+            return new Rgba((byte)(RimLight.R * k), (byte)(RimLight.G * k), (byte)(RimLight.B * k), (byte)(255 * alpha));
         });
 
         static PixelBuffer Render(int size, Func<float, float, Rgba> shade)
