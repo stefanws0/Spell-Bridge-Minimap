@@ -43,6 +43,16 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(new Rgba(180, 165, 110), got.GetPixel(0, 0), "plain cobblestone away from it is unchanged");
         }
 
+        public static void OverlayUsesTheTopPictureWhereItHasPixels()
+        {
+            var under = Fill(2, new Rgba(10, 20, 30));
+            var over = new PixelBuffer(2, 2);
+            over.SetPixel(1, 1, new Rgba(200, 190, 180));
+            var got = ArtFilter.Overlay(under, over);
+            Check.Equal(new Rgba(200, 190, 180), got.GetPixel(1, 1), "top picture where drawn");
+            Check.Equal(new Rgba(10, 20, 30), got.GetPixel(0, 0), "bottom picture elsewhere");
+        }
+
         public static void KeepsAlpha()
         {
             var got = ArtFilter.CalmGrass(Fill(5, new Rgba(90, 130, 60, 77)), 1, 0.8f, 0.7f).GetPixel(2, 2);

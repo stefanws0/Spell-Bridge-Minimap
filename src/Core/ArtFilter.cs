@@ -51,6 +51,21 @@ namespace SpellBrigadeMinimap.Core
             return dst;
         }
 
+        /// <summary>A copy of <paramref name="under"/> with every opaque pixel of <paramref name="over"/> laid on top.</summary>
+        public static PixelBuffer Overlay(PixelBuffer under, PixelBuffer over)
+        {
+            if (under.Width != over.Width || under.Height != over.Height)
+                throw new ArgumentException("pictures must be the same size", nameof(over));
+            var dst = new PixelBuffer(under.Width, under.Height);
+            for (int y = 0; y < under.Height; y++)
+                for (int x = 0; x < under.Width; x++)
+                {
+                    Rgba top = over.GetPixel(x, y);
+                    dst.SetPixel(x, y, top.A > 0 ? top : under.GetPixel(x, y));
+                }
+            return dst;
+        }
+
         static byte Byte(float v) => (byte)Math.Max(0, Math.Min(255, (int)Math.Round(v)));
     }
 }

@@ -78,6 +78,22 @@ namespace SpellBrigadeMinimap.Tests
             Check.True(ArenaFinder.FindOuterBand(f, 2, out _) == null, "the start point would be trimmed");
         }
 
+        public static void ExtraBlockedCellsCountAsWalls()
+        {
+            // An open map whose wall ring is only known from elsewhere (e.g. solid scenery the NavMesh ignores).
+            var f = Run((float x, float z, float yHint, out float y) => { y = 0f; return Math.Max(Math.Abs(x), Math.Abs(z)) < 18f; });
+            Check.True(ArenaFinder.FindOuterBand(f, 2, out _) == null, "no band without the extra walls");
+            var walls = new bool[f.Size * f.Size];
+            for (int cy = 0; cy < f.Size; cy++)
+                for (int cx = 0; cx < f.Size; cx++)
+                {
+                    float x = f.OriginX + cx + 0.5f, z = f.OriginZ + cy + 0.5f, m = Math.Max(Math.Abs(x), Math.Abs(z));
+                    walls[cy * f.Size + cx] = m >= 10f && m < 12f;
+                }
+            var band = ArenaFinder.FindOuterBand(f, 2, out _, walls);
+            Check.True(band != null && At(f, band, 15.2f, 0.2f) && !At(f, band, 0.2f, 0.2f), "band found with the extra walls");
+        }
+
         public static void ClassifyTreatsTheBandAsOutside()
         {
             var f = Run(Walled(1f));

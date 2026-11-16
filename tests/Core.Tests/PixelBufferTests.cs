@@ -90,6 +90,20 @@ namespace SpellBrigadeMinimap.Tests
             Check.Near(0.5f, cover[1], "near-key pixels don't count");
         }
 
+        public static void DownsampleIgnoringKeyAveragesOnlyDrawnPixels()
+        {
+            // 4x2 source, factor 2: left block = one grey pixel + three key pixels; right block all key.
+            var key = new Rgba(255, 0, 255);
+            var src = new byte[4 * 2 * 4];
+            for (int y = 0; y < 2; y++)
+                for (int x = 0; x < 4; x++)
+                    Put(src, 4, x, y, 255, 0, 255, 255);
+            Put(src, 4, 0, 0, 100, 120, 140, 255);
+            var dst = PixelBuffer.DownsampleIgnoringKey(src, 4, 2, 2, key, 24);
+            Check.Equal(new Rgba(100, 120, 140, 255), dst.GetPixel(0, 0), "only the drawn pixel counts");
+            Check.Equal(Rgba.Clear, dst.GetPixel(1, 0), "nothing drawn: transparent");
+        }
+
         public static void ClearResetsPixels()
         {
             var b = new PixelBuffer(3, 3);

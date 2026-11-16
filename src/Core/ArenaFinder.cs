@@ -20,8 +20,9 @@ namespace SpellBrigadeMinimap.Core
         /// Returns a per-cell flag for walkable cells beyond the arena walls, or null when the map doesn't look
         /// like an enclosed arena (no wall, an opening too wide to seal, the start point would be trimmed, or
         /// almost nothing kept). <paramref name="kept"/> is the share of walkable cells left in the arena.
+        /// Cells flagged in <paramref name="alsoBlocked"/> (solid scenery found some other way) count as walls.
         /// </summary>
-        public static bool[] FindOuterBand(WalkableFlood f, int radius, out float kept)
+        public static bool[] FindOuterBand(WalkableFlood f, int radius, out float kept, bool[] alsoBlocked = null)
         {
             kept = 1f;
             if (f.WalkableCount == 0 || f.SeedIndex < 0 || radius < 1) return null;
@@ -36,7 +37,8 @@ namespace SpellBrigadeMinimap.Core
             var blocked = new bool[w * h];
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++)
-                    blocked[y * w + x] = !f.IsWalkable(x0 + x, y0 + y);
+                    blocked[y * w + x] = !f.IsWalkable(x0 + x, y0 + y)
+                        || (alsoBlocked != null && alsoBlocked[(y0 + y) * n + x0 + x]);
             var sealedOff = Dilate(blocked, w, h, radius, outsideValue: true);
 
             // Start from a ring just inside the walkable area's bounding box, where NavMesh beyond the walls

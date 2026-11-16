@@ -67,6 +67,34 @@ namespace SpellBrigadeMinimap.Core
         }
 
         /// <summary>
+        /// Like <see cref="Downsample"/> for an image rendered over a flat <paramref name="key"/> colour: each block
+        /// becomes the average of its pixels that differ from the key (opaque), or transparent if all match it.
+        /// </summary>
+        public static PixelBuffer DownsampleIgnoringKey(byte[] rgba, int width, int height, int factor, Rgba key, int tolerance)
+        {
+            if (factor < 1) throw new ArgumentOutOfRangeException(nameof(factor));
+            var dst = new PixelBuffer(width / factor, height / factor);
+            for (int y = 0; y < dst.Height; y++)
+                for (int x = 0; x < dst.Width; x++)
+                {
+                    int r = 0, g = 0, b = 0, n = 0;
+                    for (int sy = 0; sy < factor; sy++)
+                        for (int sx = 0; sx < factor; sx++)
+                        {
+                            int i = ((y * factor + sy) * width + x * factor + sx) * 4;
+                            if (Math.Abs(rgba[i] - key.R) <= tolerance && Math.Abs(rgba[i + 1] - key.G) <= tolerance
+                                && Math.Abs(rgba[i + 2] - key.B) <= tolerance) continue;
+                            r += rgba[i];
+                            g += rgba[i + 1];
+                            b += rgba[i + 2];
+                            n++;
+                        }
+                    if (n > 0) dst.SetPixel(x, y, new Rgba((byte)(r / n), (byte)(g / n), (byte)(b / n), 255));
+                }
+            return dst;
+        }
+
+        /// <summary>
         /// For each <paramref name="factor"/> x <paramref name="factor"/> block of an RGBA32 image rendered over a
         /// flat <paramref name="key"/> colour, the share of pixels that differ from the key by more than
         /// <paramref name="tolerance"/> in some channel (i.e. where something was drawn). Row 0 is the bottom.
