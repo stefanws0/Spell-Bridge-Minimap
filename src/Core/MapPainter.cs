@@ -61,7 +61,7 @@ namespace SpellBrigadeMinimap.Core
 
         /// <summary>
         /// Composes captured level art (one pixel per cell of <paramref name="crop"/>) with the cell classes:
-        /// ground and obstacles show the art, ground next to the outside is blended halfway to the edge colour,
+        /// ground and obstacles show the art, ground next to the outside is drawn as a solid edge line,
         /// obstacle rims get the obstacle edge colour when <paramref name="highlightObstacles"/> is on, and
         /// everything outside the level is left transparent.
         /// </summary>
@@ -87,7 +87,7 @@ namespace SpellBrigadeMinimap.Core
                     switch (At(cx, cy))
                     {
                         case CellClass.Walkable:
-                            c = Touches(cx, cy, CellClass.Outside) ? Mix(a, palette.GroundEdge) : a;
+                            c = Touches(cx, cy, CellClass.Outside) ? palette.GroundEdge : a;
                             break;
                         case CellClass.Obstacle:
                             c = highlightObstacles && Touches(cx, cy, CellClass.Walkable) ? palette.ObstacleEdge : a;
@@ -104,14 +104,12 @@ namespace SpellBrigadeMinimap.Core
                 crop.Width * f.CellSize, crop.Height * f.CellSize);
         }
 
-        static Rgba Mix(Rgba a, Rgba b)
-            => new Rgba((byte)((a.R + b.R) / 2), (byte)((a.G + b.G) / 2), (byte)((a.B + b.B) / 2), 255);
-
         /// <summary>
         /// Walkable cells stay walkable. A non-walkable cell is Outside if it connects to the grid border
         /// through other non-walkable cells (4-neighbour steps), and an Obstacle if walkable ground encloses it.
+        /// Obstacles smaller than <paramref name="minObstacleCells"/> (pebbles, small props) count as ground.
         /// </summary>
-        public static CellClass[] Classify(WalkableFlood f)
+        public static CellClass[] Classify(WalkableFlood f, int minObstacleCells = 1)
         {
             int n = f.Size;
             var cls = new CellClass[n * n];
@@ -152,7 +150,43 @@ namespace SpellBrigadeMinimap.Core
                            : outside[i] ? CellClass.Outside
                            : CellClass.Obstacle;
                 }
+
+            if (minObstacleCells > 1) MergeSmallObstacles(cls, n, minObstacleCells);
             return cls;
+        }
+
+        static void MergeSmallObstacles(CellClass[] cls, int n, int minCells)
+        {
+            var seen = new bool[n * n];
+            var component = new List<int>();
+            var queue = new Queue<int>();
+            for (int start = 0; start < cls.Length; start++)
+            {
+                if (cls[start] != CellClass.Obstacle || seen[start]) continue;
+                component.Clear();
+                seen[start] = true;
+                queue.Enqueue(start);
+                while (queue.Count > 0)
+                {
+                    int i = queue.Dequeue();
+                    component.Add(i);
+                    int cx = i % n, cy = i / n;
+                    void Visit(int x, int y)
+                    {
+                        if ((uint)x >= (uint)n || (uint)y >= (uint)n) return;
+                        int j = y * n + x;
+                        if (seen[j] || cls[j] != CellClass.Obstacle) return;
+                        seen[j] = true;
+                        queue.Enqueue(j);
+                    }
+                    Visit(cx - 1, cy);
+                    Visit(cx + 1, cy);
+                    Visit(cx, cy - 1);
+                    Visit(cx, cy + 1);
+                }
+                if (component.Count < minCells)
+                    foreach (int i in component) cls[i] = CellClass.Walkable;
+            }
         }
 
         /// <summary>

@@ -27,15 +27,16 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal((byte)0, img.GetPixel(16, 2).A, "notch at the bottom");
         }
 
-        public static void BezelIsAShadedRingWithAnOpenCenter()
+        public static void BezelLooksLikeTheGameHudRings()
         {
             var img = ShapeSprites.Bezel(200);
             Check.Equal((byte)0, img.GetPixel(100, 100).A, "open center");
             Check.Equal((byte)0, img.GetPixel(2, 2).A, "clear outside the circle");
-            Rgba top = img.GetPixel(100, 193), bottom = img.GetPixel(100, 6);
-            Check.Equal((byte)255, top.A, "band is opaque");
-            Check.True(top.R > bottom.R && top.G > bottom.G, $"lit from above: top {top}, bottom {bottom}");
-            Rgba shadow = img.GetPixel(100, 178);
+            Rgba ring = img.GetPixel(100, 195);
+            Check.True(ring.A == 255 && ring.R < 30, $"opaque near-black ring: {ring}");
+            Rgba lightBottom = img.GetPixel(100, 11), lightTop = img.GetPixel(100, 188);
+            Check.True(lightBottom.R > 150 && lightTop.R < 60, $"cream rim light along the bottom only: bottom {lightBottom}, top {lightTop}");
+            Rgba shadow = img.GetPixel(100, 182);
             Check.True(shadow.A > 0 && shadow.A < 255 && shadow.R < 40, $"soft dark inner shadow: {shadow}");
         }
 

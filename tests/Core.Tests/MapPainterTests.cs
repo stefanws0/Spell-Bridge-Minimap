@@ -33,6 +33,13 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(CellClass.Outside, ClassAt(f, cls, 15f, 0f), "far outside");
         }
 
+        public static void SmallObstaclesCountAsGround()
+        {
+            var f = Island(); // its hole covers about 28 cells
+            Check.Equal(CellClass.Walkable, ClassAt(f, MapPainter.Classify(f, minObstacleCells: 40), 5.2f, 0.2f), "small hole merged into ground");
+            Check.Equal(CellClass.Obstacle, ClassAt(f, MapPainter.Classify(f, minObstacleCells: 5), 5.2f, 0.2f), "kept when big enough");
+        }
+
         public static void PaintCropsToTheGroundPlusPadding()
         {
             var f = Island();
@@ -96,7 +103,7 @@ namespace SpellBrigadeMinimap.Tests
             Check.Near(-13f, map.OriginX, "origin x");
             Check.Equal(ArtColor, PixelAt(map, -5f, 0f), "ground");
             Check.Equal(ArtColor, PixelAt(map, 5.2f, 0.2f), "middle of an obstacle");
-            Check.Equal(new Rgba(51, 76, 26), PixelAt(map, 9.2f, 0.2f), "level edge is half art, half edge colour");
+            Check.Equal(Palette.GroundEdge, PixelAt(map, 9.2f, 0.2f), "arena edge is a solid line");
         }
 
         public static void ArtObstacleRimFollowsTheHighlightSetting()

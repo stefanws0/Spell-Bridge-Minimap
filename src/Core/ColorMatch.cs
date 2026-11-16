@@ -13,31 +13,34 @@ namespace SpellBrigadeMinimap.Core
         }
     }
 
+    /// <summary>Brightness (Y) and tint (Cb = blue-yellow, Cr = red-green) statistics of a set of pixels.</summary>
     public readonly struct ColorStats
     {
-        public readonly ChannelStats R, G, B;
+        public readonly ChannelStats Y, Cb, Cr;
         public readonly int Count;
 
-        public ColorStats(ChannelStats r, ChannelStats g, ChannelStats b, int count)
+        public ColorStats(ChannelStats y, ChannelStats cb, ChannelStats cr, int count)
         {
-            R = r; G = g; B = b; Count = count;
+            Y = y; Cb = cb; Cr = cr; Count = count;
         }
 
         public override string ToString()
-            => $"mean ({R.Mean:0},{G.Mean:0},{B.Mean:0}) spread ({R.Std:0},{G.Std:0},{B.Std:0}) over {Count} px";
+            => $"brightness {Y.Mean:0} (spread {Y.Std:0}), tint Cb {Cb.Mean:0} Cr {Cr.Mean:0}, {Count} px";
     }
 
     /// <summary>
-    /// Matches one picture's colours to another's by lining up each channel's mean and spread. Fog at a fixed
-    /// distance and most colour grading act on each channel as a scale plus an offset, so this undoes them.
+    /// Brings one picture's look in line with another's. Fog at a fixed distance blends every pixel toward
+    /// one colour by the same amount, which lowers contrast equally in all channels and adds a tint; this
+    /// undoes that with a single contrast factor (capped) and a tint shift (limited), so a reference that
+    /// happens to contain odd colours can't recolour or over-sharpen the map.
     /// </summary>
     public static class ColorMatch
     {
-        const float MinScale = 0.25f, MaxScale = 4f;
+        public const float MinContrast = 0.5f, MaxContrast = 2.5f, MaxTintShift = 32f;
 
         /// <summary>
-        /// Per-channel mean and standard deviation of the opaque pixels <paramref name="include"/> accepts
-        /// (null = all), ignoring the darkest and brightest <paramref name="trim"/> fraction by luminance.
+        /// Mean and spread of brightness and tint over the opaque pixels <paramref name="include"/> accepts
+        /// (null = all), ignoring the darkest and brightest <paramref name="trim"/> fraction.
         /// </summary>
         public static ColorStats Measure(PixelBuffer img, Func<int, int, bool> include, float trim)
         {
@@ -61,7 +64,7 @@ namespace SpellBrigadeMinimap.Core
                 for (hi = 255; hi > 0; hi--) { sum += histogram[hi]; if (sum > cut) break; }
             }
 
-            double sr = 0, sg = 0, sb = 0, qr = 0, qg = 0, qb = 0;
+            double sy = 0, sb = 0, sr = 0, qy = 0, qb = 0, qr = 0;
             int n = 0;
             for (int y = 0; y < img.Height; y++)
                 for (int x = 0; x < img.Width; x++)
@@ -70,30 +73,50 @@ namespace SpellBrigadeMinimap.Core
                     if (c.A == 0 || (include != null && !include(x, y))) continue;
                     int l = Luma(c);
                     if (l < lo || l > hi) continue;
-                    sr += c.R; sg += c.G; sb += c.B;
-                    qr += c.R * c.R; qg += c.G * c.G; qb += c.B * c.B;
+                    ToYCbCr(c, out float yy, out float cb, out float cr);
+                    sy += yy; sb += cb; sr += cr;
+                    qy += yy * yy; qb += cb * cb; qr += cr * cr;
                     n++;
                 }
             if (n == 0) return new ColorStats(default, default, default, 0);
-            return new ColorStats(Channel(sr, qr, n), Channel(sg, qg, n), Channel(sb, qb, n), n);
+            return new ColorStats(Channel(sy, qy, n), Channel(sb, qb, n), Channel(sr, qr, n), n);
         }
 
-        /// <summary>Maps each channel value c to (c - from.mean) * (to.std / from.std) + to.mean, clamped. Alpha is kept.</summary>
+        /// <summary>
+        /// Scales every pixel's distance from the picture's mean by one contrast factor (the ratio of brightness
+        /// spreads, clamped to [MinContrast, MaxContrast]), moves the brightness to the reference's mean, and
+        /// shifts the tint toward the reference's by at most MaxTintShift. Alpha is kept.
+        /// </summary>
         public static PixelBuffer Transfer(PixelBuffer img, in ColorStats from, in ColorStats to)
         {
+            float k = from.Y.Std < 1f ? 1f : Math.Min(MaxContrast, Math.Max(MinContrast, to.Y.Std / from.Y.Std));
+            float cbShift = Math.Min(MaxTintShift, Math.Max(-MaxTintShift, to.Cb.Mean - from.Cb.Mean));
+            float crShift = Math.Min(MaxTintShift, Math.Max(-MaxTintShift, to.Cr.Mean - from.Cr.Mean));
+            float cbTarget = from.Cb.Mean + cbShift, crTarget = from.Cr.Mean + crShift;
+
             var dst = new PixelBuffer(img.Width, img.Height);
-            float sr = Scale(from.R, to.R), sg = Scale(from.G, to.G), sb = Scale(from.B, to.B);
             for (int y = 0; y < img.Height; y++)
                 for (int x = 0; x < img.Width; x++)
                 {
                     Rgba c = img.GetPixel(x, y);
+                    ToYCbCr(c, out float yy, out float cb, out float cr);
+                    float y2 = (yy - from.Y.Mean) * k + to.Y.Mean;
+                    float cb2 = (cb - from.Cb.Mean) * k + cbTarget;
+                    float cr2 = (cr - from.Cr.Mean) * k + crTarget;
                     dst.SetPixel(x, y, new Rgba(
-                        Map(c.R, from.R.Mean, sr, to.R.Mean),
-                        Map(c.G, from.G.Mean, sg, to.G.Mean),
-                        Map(c.B, from.B.Mean, sb, to.B.Mean),
+                        Byte(y2 + 1.402f * cr2),
+                        Byte(y2 - 0.344136f * cb2 - 0.714136f * cr2),
+                        Byte(y2 + 1.772f * cb2),
                         c.A));
                 }
             return dst;
+        }
+
+        static void ToYCbCr(Rgba c, out float y, out float cb, out float cr)
+        {
+            y = 0.299f * c.R + 0.587f * c.G + 0.114f * c.B;
+            cb = -0.168736f * c.R - 0.331264f * c.G + 0.5f * c.B;
+            cr = 0.5f * c.R - 0.418688f * c.G - 0.081312f * c.B;
         }
 
         static int Luma(Rgba c) => (c.R * 299 + c.G * 587 + c.B * 114) / 1000;
@@ -105,13 +128,6 @@ namespace SpellBrigadeMinimap.Core
             return new ChannelStats((float)mean, (float)Math.Sqrt(variance));
         }
 
-        static float Scale(ChannelStats from, ChannelStats to)
-            => from.Std < 1f ? 1f : Math.Min(MaxScale, Math.Max(MinScale, to.Std / from.Std));
-
-        static byte Map(byte value, float fromMean, float scale, float toMean)
-        {
-            double v = (value - fromMean) * scale + toMean;
-            return (byte)Math.Max(0, Math.Min(255, Math.Round(v)));
-        }
+        static byte Byte(float v) => (byte)Math.Max(0, Math.Min(255, (int)Math.Round(v)));
     }
 }

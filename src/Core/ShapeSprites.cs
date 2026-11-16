@@ -40,39 +40,33 @@ namespace SpellBrigadeMinimap.Core
             return d > 0.5f - border ? Border : Rgba.White;
         });
 
-        // Bezel rings, as fractions of the diameter, from the outside in.
-        public const float BezelOutline = 0.012f, BezelBand = 0.045f, BezelInnerLine = 0.008f, BezelShadow = 0.06f;
+        // Bezel rings, as fractions of the diameter, from the outside in. Modelled on the game's HUD circles:
+        // a near-black ring with a soft cream light along the inside of its lower half.
+        public const float BezelRing = 0.05f, BezelRimLight = 0.016f, BezelShadow = 0.06f;
         /// <summary>How much of the radius the opaque part of the bezel covers, as a fraction of the diameter.</summary>
-        public const float BezelThickness = BezelOutline + BezelBand + BezelInnerLine;
-        static readonly Rgba BezelDark = new Rgba(30, 24, 18, 255);
-        static readonly Rgba GoldShade = new Rgba(140, 108, 60, 255), GoldLight = new Rgba(240, 218, 165, 255);
+        public const float BezelThickness = BezelRing;
+        static readonly Rgba BezelBlack = new Rgba(20, 20, 22, 255);
+        static readonly Rgba RimLight = new Rgba(253, 248, 206, 255);
 
         /// <summary>
-        /// A round minimap border: dark outline, a gold band lit from above, a dark inner line, and a soft
-        /// shadow fading inward over the map. The center is transparent.
+        /// A round minimap border in the style of the game's HUD rings: a near-black ring, a cream rim light
+        /// inside its lower half, and a soft shadow fading inward over the map. The center is transparent.
         /// </summary>
         public static PixelBuffer Bezel(int size) => Render(size, (u, v) =>
         {
             float d = Distance(u, v);
-            float outlineIn = 0.5f - BezelOutline, bandIn = outlineIn - BezelBand, lineIn = bandIn - BezelInnerLine;
+            float ringIn = 0.5f - BezelRing;
             if (d > 0.5f) return Rgba.Clear;
-            if (d > outlineIn) return BezelDark;
-            if (d > bandIn) return Lerp(GoldShade, GoldLight, v);
-            if (d > lineIn) return BezelDark;
-            float t = (lineIn - d) / BezelShadow;
+            if (d > ringIn) return BezelBlack;
+            if (d > ringIn - BezelRimLight)
+            {
+                float light = Math.Max(0f, Math.Min(1f, (0.55f - v) * 2f));
+                if (light > 0.02f) return new Rgba(RimLight.R, RimLight.G, RimLight.B, (byte)(217 * light));
+            }
+            float t = (ringIn - d) / BezelShadow;
             if (t >= 1f) return Rgba.Clear;
             return new Rgba(0, 0, 0, (byte)(115 * (1f - t)));
         });
-
-        static Rgba Lerp(Rgba a, Rgba b, float t)
-        {
-            t = Math.Max(0f, Math.Min(1f, t));
-            return new Rgba(
-                (byte)(a.R + (b.R - a.R) * t),
-                (byte)(a.G + (b.G - a.G) * t),
-                (byte)(a.B + (b.B - a.B) * t),
-                255);
-        }
 
         static PixelBuffer Render(int size, Func<float, float, Rgba> shade)
         {
