@@ -49,6 +49,15 @@ namespace SpellBrigadeMinimap
         const int MinObstacleCells = 3;      // smaller holes (pebbles) are drawn as ground
         const int ArenaSealRadius = 2;       // seals wall gaps up to 4 cells when separating the arena
         const float MaxTintShift = 6f;       // the raw picture's tint is already close; only nudge it
+        const int CalmRadius = 5;            // grass-calming filter: neighbourhood, strength, detail lift
+        const float CalmStrength = 0.8f, CalmLift = 0.7f;
+        const float SolidHeight = 1f;        // static scenery this far above the NavMesh blocks the cell
+        const float RayStartHeight = 30f;
+        const float MaxSolidShare = 0.6f;    // more cells blocked than this: something odd (a ceiling?), redo without physics
+        const int PhysicsMask = ~((1 << 2) | (1 << 5)); // everything but "Ignore Raycast" and UI
+
+        static bool usePhysics = true;
+        static int solidCells;
 
         // Colours follow the game's HUD: near-black outlines and a cream highlight.
         static readonly MapPalette Palette = new MapPalette(
@@ -77,6 +86,7 @@ namespace SpellBrigadeMinimap
             rawArt = null;
             retries = 0;
             failed = radarLogged = artFailed = artShown = false;
+            usePhysics = true;
             Map?.Destroy();
             Map = null;
         }
@@ -99,6 +109,7 @@ namespace SpellBrigadeMinimap
                     nextRetry = now + RetrySeconds;
                     probes = 0;
                     busyMs = 0;
+                    solidCells = 0;
                 }
                 if (flood.StateAt(g.x, g.z) == CellState.Unknown) flood.Seed(g.x, g.z, g.y);
             }
@@ -145,6 +156,14 @@ namespace SpellBrigadeMinimap
 
                 if (!flood.HasWork)
                 {
+                    if (usePhysics && solidCells > (flood.WalkableCount + solidCells) * MaxSolidShare)
+                    {
+                        Mod.Log.LogWarning($"{solidCells} of {flood.WalkableCount + solidCells} ground cells are under solid scenery; "
+                            + "that looks wrong (an invisible ceiling?), so the map is redone from the NavMesh alone.");
+                        usePhysics = false;
+                        flood = null; // the next SeedNear starts over
+                        return false;
+                    }
                     classes = ClassifyArena();
                     bool changed = Replace(MapPainter.Paint(flood, classes, Palette, Padding), FilterMode.Bilinear);
                     LogFinished(now);
@@ -272,11 +291,17 @@ namespace SpellBrigadeMinimap
                     {
                         art = ColorMatch.Transfer(rawArt, picture, game, MaxTintShift);
                         Mod.Log.LogInfo($"Matched level picture colours. Picture: {picture}. Game view: {game}.");
-                        DebugImages.Save("3-level-picture-matched", art);
                     }
                 }
             }
             catch (Exception e) { LogOnce.Error("matching the level picture's colours (showing it unmatched)", e); }
+
+            try
+            {
+                art = ArtFilter.CalmGrass(art, CalmRadius, CalmStrength, CalmLift);
+                DebugImages.Save("3-level-picture-matched", art);
+            }
+            catch (Exception e) { LogOnce.Error("calming the grass in the level picture", e); }
 
             try
             {
@@ -313,6 +338,7 @@ namespace SpellBrigadeMinimap
             float w = (flood.MaxX - flood.MinX + 1) * CellSize, h = (flood.MaxY - flood.MinY + 1) * CellSize;
             double usPerProbe = probes > 0 ? busyMs * 1000.0 / probes : 0.0;
             Mod.Log.LogInfo($"Mapped level layout: {flood.WalkableCount} walkable cells over {w:0} x {h:0} world units; "
+                + $"{solidCells} NavMesh cells blocked by solid scenery{(usePhysics ? "" : " (physics check off)")}; "
                 + $"{probes} probes ({usPerProbe:0.0} us each), {busyMs:0} ms of work spread over {now - floodStarted:0.0} s.");
             if (flood.TouchedBorder)
                 LogOnce.Warn("map-grid-border", $"The level is larger than the {GridSize * CellSize:0}-unit mapping grid; its far edges may be cut off.");
@@ -326,7 +352,26 @@ namespace SpellBrigadeMinimap
             float dx = p.x - x, dz = p.z - z;
             if (dx * dx + dz * dz > MaxCellOffset * MaxCellOffset) return false;
             y = p.y;
+            if (usePhysics && UnderSolidScenery(x, z, y))
+            {
+                solidCells++;
+                return false;
+            }
             return true;
+        }
+
+        /// <summary>
+        /// Not every rock or wall is cut out of the NavMesh. A ray straight down that hits static scenery more
+        /// than <see cref="SolidHeight"/> above the ground means the cell is blocked. Anything with a rigidbody
+        /// (players, enemies, projectiles) is ignored.
+        /// </summary>
+        static bool UnderSolidScenery(float x, float z, float ground)
+        {
+            if (!Physics.Raycast(new Vector3(x, ground + RayStartHeight, z), Vector3.down, out RaycastHit hit,
+                    RayStartHeight - SolidHeight, PhysicsMask, QueryTriggerInteraction.Ignore))
+                return false;
+            var col = hit.collider;
+            return col != null && col.attachedRigidbody == null;
         }
     }
 }
