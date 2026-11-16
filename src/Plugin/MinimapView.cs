@@ -1,0 +1,234 @@
+using System.Collections.Generic;
+using SpellBrigadeMinimap.Core;
+using UnityEngine;
+using UnityEngine.UI;
+using NVec2 = System.Numerics.Vector2;
+
+namespace SpellBrigadeMinimap
+{
+    /// <summary>Owns the minimap's UI objects and draws one frame from scanned data.</summary>
+    internal sealed class MinimapView
+    {
+        const int DotTextureSize = 128;
+        const float BorderWidth = 2f;
+        static readonly Color FrameColor = new Color(0.85f, 0.88f, 0.95f, 0.9f);
+        static readonly Color Background = new Color(0.06f, 0.07f, 0.1f, 0.75f);
+        static readonly Rgba EnemyColor = new Rgba(235, 64, 52);
+        static readonly Rgba EliteColor = new Rgba(255, 165, 40);
+        static readonly Color ObjectiveColor = new Color(1f, 0.85f, 0.3f, 1f);
+        static readonly Color BossColor = new Color(0.8f, 0.2f, 1f, 1f);
+        static readonly Color DownedColor = new Color(1f, 0.35f, 0.35f, 1f);
+        static readonly Color DangerColor = new Color(1f, 0.3f, 0.2f, 1f);
+        static readonly Color PickupColor = new Color(0.5f, 1f, 0.6f, 1f);
+
+        readonly MinimapConfig cfg;
+        readonly GameObject root;
+        readonly RectTransform frame, mapRoot;
+        readonly CanvasGroup group;
+        readonly RawImage layout;
+        readonly IconPool zones, icons;
+        readonly Image you;
+        readonly PixelBuffer dotPixels = new PixelBuffer(DotTextureSize, DotTextureSize);
+        readonly Texture2D dotTexture;
+        readonly Sprite disc, ring, arrow, diamond;
+
+        BakedMap map;
+        bool visible = true, dotsEmpty;
+        float lastSize = -1f, lastMargin = -1f;
+        ScreenCorner lastCorner = (ScreenCorner)(-1);
+
+        public MinimapView(MinimapConfig cfg)
+        {
+            this.cfg = cfg;
+            disc = SpriteFactory.ToSprite(ShapeSprites.Disc(32, 0.12f));
+            ring = SpriteFactory.ToSprite(ShapeSprites.Ring(128, 0.03f));
+            arrow = SpriteFactory.ToSprite(ShapeSprites.Arrow(32));
+            diamond = SpriteFactory.ToSprite(ShapeSprites.Diamond(32, 0.1f));
+
+            root = new GameObject("SpellBrigadeMinimap");
+            Object.DontDestroyOnLoad(root);
+            var canvas = root.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 300;
+            var scaler = root.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.matchWidthOrHeight = 1f;
+
+            var frameImg = UiBuilder.NewImage("Frame", root.transform);
+            frameImg.color = FrameColor;
+            frame = frameImg.rectTransform;
+            group = frame.gameObject.AddComponent<CanvasGroup>();
+            group.blocksRaycasts = false;
+            group.interactable = false;
+
+            var panelImg = UiBuilder.NewImage("Panel", frame);
+            panelImg.color = Background;
+            var panel = panelImg.rectTransform;
+            UiBuilder.Stretch(panel, BorderWidth);
+            panel.gameObject.AddComponent<RectMask2D>();
+
+            mapRoot = UiBuilder.NewRect("MapRoot", panel);
+            layout = UiBuilder.NewRawImage("Layout", mapRoot);
+            layout.enabled = false;
+
+            zones = new IconPool(UiBuilder.NewRect("Zones", panel));
+
+            var dots = UiBuilder.NewRawImage("Enemies", panel);
+            UiBuilder.Stretch(dots.rectTransform, 0f);
+            dotTexture = SpriteFactory.ToTexture(dotPixels, FilterMode.Bilinear, keepReadable: true);
+            dots.texture = dotTexture;
+
+            icons = new IconPool(UiBuilder.NewRect("Icons", panel));
+
+            you = UiBuilder.NewImage("You", panel);
+            you.sprite = arrow;
+            you.rectTransform.sizeDelta = new Vector2(18f, 18f);
+
+            ApplyLayout();
+        }
+
+        public void SetVisible(bool show)
+        {
+            if (show == visible) return;
+            visible = show;
+            root.SetActive(show);
+        }
+
+        public void SetMap(BakedMap baked)
+        {
+            map = baked;
+            layout.texture = baked != null ? baked.Texture : null;
+            layout.enabled = baked != null;
+        }
+
+        public void Render(WorldScanner s, List<EventMarker> markers, float yaw, float radius)
+        {
+            ApplyLayout();
+            group.alpha = cfg.Opacity.Value;
+            float half = (cfg.Size.Value - 2f * BorderWidth) * 0.5f;
+            var view = new MapView(s.Center, yaw, radius, half);
+            float scale = view.Scale;
+
+            // Level layout: a world-aligned image under a root turned by the yaw (matches MapMath.WorldToPanel).
+            mapRoot.localEulerAngles = new Vector3(0f, 0f, yaw);
+            if (map != null)
+            {
+                var lt = layout.rectTransform;
+                lt.sizeDelta = new Vector2(map.WorldWidth * scale, map.WorldHeight * scale);
+                float dx = map.OriginX + map.WorldWidth * 0.5f - s.Center.X;
+                float dz = map.OriginZ + map.WorldHeight * 0.5f - s.Center.Y;
+                lt.anchoredPosition = new Vector2(dx * scale, dz * scale);
+            }
+
+            zones.Begin();
+            if (cfg.ShowMoreEvents.Value)
+                foreach (var m in markers)
+                    if (m.Zone && m.Radius > 0f)
+                        zones.Place(ring, m.Color, ToUnity(MapMath.WorldToPanel(view, m.Pos)), m.Radius * 2f * scale, 0f);
+            zones.End();
+
+            DrawEnemies(s, view);
+
+            icons.Begin();
+            foreach (var poi in s.Pois) DrawPoi(poi, view);
+            if (cfg.ShowMoreEvents.Value)
+                foreach (var m in markers)
+                    if (!m.Zone) DrawPoint(diamond, m.Color, MapMath.WorldToPanel(view, m.Pos), 16f, half, clamp: true);
+            if (cfg.ShowTeammates.Value)
+                foreach (var p in s.Players)
+                {
+                    Color c = p.Color;
+                    if (p.Ghost) c.a = 0.5f;
+                    DrawPoint(disc, c, MapMath.WorldToPanel(view, p.Pos), p.Ghost ? 10f : 13f, half, clamp: true);
+                }
+            icons.End();
+
+            you.rectTransform.localEulerAngles = new Vector3(0f, 0f, MapMath.HeadingToPanelAngle(s.Facing, yaw));
+        }
+
+        void DrawEnemies(WorldScanner s, in MapView view)
+        {
+            bool any = false;
+            dotPixels.Clear();
+            if (cfg.ShowEnemies.Value)
+            {
+                float toPx = DotTextureSize / (2f * view.HalfSize);
+                foreach (var e in s.Enemies)
+                {
+                    NVec2 p = MapMath.WorldToPanel(view, e.Pos);
+                    if (!MapMath.IsInside(p, view.HalfSize)) continue;
+                    any = true;
+                    float x = (p.X + view.HalfSize) * toPx;
+                    float y = (p.Y + view.HalfSize) * toPx;
+                    dotPixels.FillCircle(x, y, e.Elite ? 2.2f : 1.3f, e.Elite ? EliteColor : EnemyColor);
+                }
+            }
+            if (!any && dotsEmpty) return; // already blank on the GPU
+            SpriteFactory.Upload(dotTexture, dotPixels, keepReadable: true);
+            dotsEmpty = !any;
+        }
+
+        void DrawPoi(Poi poi, in MapView view)
+        {
+            if (poi.Target == null) return;
+            bool pickup = poi.Kind == PoiKind.Pickup;
+            if (pickup ? !cfg.ShowPickups.Value : !cfg.ShowObjectives.Value) return;
+
+            Vector3 w = poi.Target.position;
+            NVec2 p = MapMath.WorldToPanel(view, new NVec2(w.x, w.z));
+            Sprite sprite = poi.Sprite != null ? poi.Sprite : (pickup ? disc : diamond);
+            Color color = poi.Sprite != null ? poi.Color : KindColor(poi.Kind);
+            float size = poi.Kind == PoiKind.Boss ? 24f : pickup ? 14f : 20f;
+            DrawPoint(sprite, color, p, size, view.HalfSize, poi.ClampToEdge);
+        }
+
+        /// <summary>Draws an icon; if it's off the panel and <paramref name="clamp"/> is set, pins it to the edge with an arrow.</summary>
+        void DrawPoint(Sprite sprite, Color color, NVec2 p, float size, float half, bool clamp)
+        {
+            if (MapMath.IsInside(p, half))
+            {
+                icons.Place(sprite, color, ToUnity(p), size, 0f);
+                return;
+            }
+            if (!clamp) return;
+            MapMath.ClampToEdge(p, half, size * 0.5f + 8f, out NVec2 iconPos, out float angle);
+            MapMath.ClampToEdge(p, half, 5f, out NVec2 arrowPos, out _);
+            icons.Place(sprite, color, ToUnity(iconPos), size * 0.8f, 0f);
+            icons.Place(arrow, color, ToUnity(arrowPos), 10f, angle - 90f);
+        }
+
+        static Color KindColor(PoiKind kind)
+        {
+            switch (kind)
+            {
+                case PoiKind.Boss: return BossColor;
+                case PoiKind.Downed: return DownedColor;
+                case PoiKind.Danger: return DangerColor;
+                case PoiKind.Pickup: return PickupColor;
+                default: return ObjectiveColor;
+            }
+        }
+
+        void ApplyLayout()
+        {
+            float size = cfg.Size.Value, margin = cfg.Margin.Value;
+            ScreenCorner corner = cfg.Corner.Value;
+            if (size == lastSize && margin == lastMargin && corner == lastCorner) return;
+            lastSize = size;
+            lastMargin = margin;
+            lastCorner = corner;
+
+            bool right = corner == ScreenCorner.TopRight || corner == ScreenCorner.BottomRight;
+            bool top = corner == ScreenCorner.TopLeft || corner == ScreenCorner.TopRight;
+            var anchor = new Vector2(right ? 1f : 0f, top ? 1f : 0f);
+            frame.anchorMin = anchor;
+            frame.anchorMax = anchor;
+            frame.pivot = anchor;
+            frame.anchoredPosition = new Vector2(right ? -margin : margin, top ? -margin : margin);
+            frame.sizeDelta = new Vector2(size, size);
+        }
+
+        static Vector2 ToUnity(NVec2 v) => new Vector2(v.X, v.Y);
+    }
+}
