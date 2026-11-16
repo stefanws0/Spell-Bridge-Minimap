@@ -66,6 +66,60 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(Rgba.Clear, PixelAt(map, 5.2f, 0.2f), "hole not highlighted yet");
         }
 
+        static readonly Rgba ArtColor = new Rgba(100, 150, 50);
+
+        static PaintedMap ArtMap(bool highlight)
+        {
+            var f = Island();
+            Check.True(MapPainter.TryCrop(f, 3, out var crop), "crop");
+            var art = new PixelBuffer(crop.Width, crop.Height);
+            for (int y = 0; y < art.Height; y++)
+                for (int x = 0; x < art.Width; x++)
+                    art.SetPixel(x, y, ArtColor);
+            return MapPainter.PaintArt(f, MapPainter.Classify(f), art, Palette, crop, highlight);
+        }
+
+        public static void CropCoversGroundPlusPadding()
+        {
+            var f = Island();
+            Check.True(MapPainter.TryCrop(f, 3, out var crop), "found ground");
+            Check.Equal(7, crop.X, "x");
+            Check.Equal(7, crop.Y, "y");
+            Check.Equal(26, crop.Width, "width");
+            Check.Equal(26, crop.Height, "height");
+            Check.True(!MapPainter.TryCrop(new WalkableFlood(10, 1f, 0f, 0f), 3, out _), "nothing walkable");
+        }
+
+        public static void ArtShowsThroughOnGroundAndObstacles()
+        {
+            var map = ArtMap(highlight: true);
+            Check.Near(-13f, map.OriginX, "origin x");
+            Check.Equal(ArtColor, PixelAt(map, -5f, 0f), "ground");
+            Check.Equal(ArtColor, PixelAt(map, 5.2f, 0.2f), "middle of an obstacle");
+            Check.Equal(new Rgba(51, 76, 26), PixelAt(map, 9.2f, 0.2f), "level edge is half art, half edge colour");
+        }
+
+        public static void ArtObstacleRimFollowsTheHighlightSetting()
+        {
+            Check.Equal(Palette.ObstacleEdge, PixelAt(ArtMap(highlight: true), 2.2f, 0.2f), "highlighted rim");
+            Check.Equal(ArtColor, PixelAt(ArtMap(highlight: false), 2.2f, 0.2f), "plain art when off");
+        }
+
+        public static void ArtOutsideTheLevelIsDimmed()
+        {
+            Check.Equal(new Rgba(45, 67, 22), PixelAt(ArtMap(highlight: true), -12.5f, -12.5f), "45% brightness");
+        }
+
+        public static void ArtMustMatchTheCrop()
+        {
+            var f = Island();
+            MapPainter.TryCrop(f, 3, out var crop);
+            bool threw = false;
+            try { MapPainter.PaintArt(f, MapPainter.Classify(f), new PixelBuffer(5, 5), Palette, crop, true); }
+            catch (ArgumentException) { threw = true; }
+            Check.True(threw, "wrong size rejected");
+        }
+
         public static void NothingWalkableGivesNull()
         {
             var f = new WalkableFlood(10, 1f, 0f, 0f);

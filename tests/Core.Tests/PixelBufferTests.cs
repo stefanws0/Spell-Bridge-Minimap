@@ -42,6 +42,38 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(Rgba.Clear, b.GetPixel(3, 3), "(3,3)");
         }
 
+        static void Put(byte[] rgba, int width, int x, int y, byte r, byte g, byte b, byte a)
+        {
+            int i = (y * width + x) * 4;
+            rgba[i] = r; rgba[i + 1] = g; rgba[i + 2] = b; rgba[i + 3] = a;
+        }
+
+        public static void DownsampleAveragesBlocksIntoOpaquePixels()
+        {
+            // 4x2 source, factor 2: the left block is two red + two blue pixels, the right block is white.
+            var src = new byte[4 * 2 * 4];
+            Put(src, 4, 0, 0, 255, 0, 0, 0);
+            Put(src, 4, 1, 0, 0, 0, 255, 0);
+            Put(src, 4, 0, 1, 255, 0, 0, 0);
+            Put(src, 4, 1, 1, 0, 0, 255, 0);
+            for (int y = 0; y < 2; y++)
+                for (int x = 2; x < 4; x++)
+                    Put(src, 4, x, y, 255, 255, 255, 255);
+
+            var dst = PixelBuffer.Downsample(src, 4, 2, 2);
+            Check.Equal(2, dst.Width, "width");
+            Check.Equal(1, dst.Height, "height");
+            Check.Equal(new Rgba(127, 0, 127, 255), dst.GetPixel(0, 0), "red and blue average, alpha forced opaque");
+            Check.Equal(new Rgba(255, 255, 255, 255), dst.GetPixel(1, 0), "white");
+        }
+
+        public static void DownsampleDropsPartialBlocks()
+        {
+            var dst = PixelBuffer.Downsample(new byte[5 * 5 * 4], 5, 5, 2);
+            Check.Equal(2, dst.Width, "width");
+            Check.Equal(2, dst.Height, "height");
+        }
+
         public static void ClearResetsPixels()
         {
             var b = new PixelBuffer(3, 3);

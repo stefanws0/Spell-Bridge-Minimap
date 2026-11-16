@@ -80,6 +80,7 @@ namespace SpellBrigadeMinimap.Tests
             while (f.HasWork) f.Step(1000, Ramp);
             Check.Equal(CellState.Walkable, f.StateAt(12.2f, 0.2f), "far up the ramp");
             Check.Equal(CellState.Walkable, f.StateAt(-12.2f, 0.2f), "far down the ramp");
+            Check.Near(7.25f, f.MaxHeight, "highest ground found (cell center x = 14.5)");
         }
 
         public static void SeedOutsideTheGridDoesNothing()

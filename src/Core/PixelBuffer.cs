@@ -36,6 +36,36 @@ namespace SpellBrigadeMinimap.Core
             return new Rgba(Data[i], Data[i + 1], Data[i + 2], Data[i + 3]);
         }
 
+        /// <summary>
+        /// Shrinks an RGBA32 image by averaging each <paramref name="factor"/> x <paramref name="factor"/> block
+        /// into one opaque pixel (a box filter). Partial blocks at the right and top edges are dropped.
+        /// </summary>
+        public static PixelBuffer Downsample(byte[] rgba, int width, int height, int factor)
+        {
+            if (factor < 1) throw new ArgumentOutOfRangeException(nameof(factor));
+            if (rgba.Length < width * height * 4) throw new ArgumentException("buffer smaller than width x height", nameof(rgba));
+            var dst = new PixelBuffer(width / factor, height / factor);
+            int n = factor * factor;
+            for (int y = 0; y < dst.Height; y++)
+                for (int x = 0; x < dst.Width; x++)
+                {
+                    int r = 0, g = 0, b = 0;
+                    for (int sy = 0; sy < factor; sy++)
+                    {
+                        int row = ((y * factor + sy) * width + x * factor) * 4;
+                        for (int sx = 0; sx < factor; sx++)
+                        {
+                            int i = row + sx * 4;
+                            r += rgba[i];
+                            g += rgba[i + 1];
+                            b += rgba[i + 2];
+                        }
+                    }
+                    dst.SetPixel(x, y, new Rgba((byte)(r / n), (byte)(g / n), (byte)(b / n), 255));
+                }
+            return dst;
+        }
+
         /// <summary>Sets every pixel whose center lies within <paramref name="radius"/> of (cx, cy).</summary>
         public void FillCircle(float cx, float cy, float radius, Rgba c)
         {

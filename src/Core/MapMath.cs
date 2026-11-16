@@ -72,6 +72,27 @@ namespace SpellBrigadeMinimap.Core
             return true;
         }
 
+        public static bool IsInsideCircle(Vector2 panel, float radius)
+            => panel.LengthSquared() <= radius * radius;
+
+        /// <summary>
+        /// Round-panel version of <see cref="ClampToEdge"/>: pulls a point beyond radius - margin back onto
+        /// that circle and returns true. The angle is the point's direction (degrees, counter-clockwise from +X).
+        /// </summary>
+        public static bool ClampToCircle(Vector2 panel, float radius, float margin, out Vector2 clamped, out float angleDegrees)
+        {
+            float limit = Math.Max(0f, radius - margin);
+            float length = panel.Length();
+            angleDegrees = (float)(Math.Atan2(panel.Y, panel.X) * Rad2Deg);
+            if (length <= limit)
+            {
+                clamped = panel;
+                return false;
+            }
+            clamped = panel * (limit / length);
+            return true;
+        }
+
         /// <summary>
         /// UI rotation (degrees, counter-clockwise, 0 = pointing up) for something facing
         /// <paramref name="forwardXZ"/> in the world, on a panel turned by <paramref name="yawDegrees"/>.

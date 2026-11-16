@@ -75,6 +75,28 @@ namespace SpellBrigadeMinimap.Tests
             Check.Near(-90f, a2, "angle down");
         }
 
+        public static void CircleInsideUsesTheRadius()
+        {
+            Check.True(MapMath.IsInsideCircle(new Vector2(60f, 70f), 100f), "92 from center is inside");
+            Check.True(!MapMath.IsInsideCircle(new Vector2(80f, 80f), 100f), "a square's corner (113) is outside");
+        }
+
+        public static void ClampToCircleLeavesInsidePointsAlone()
+        {
+            bool clamped = MapMath.ClampToCircle(new Vector2(20f, 30f), 100f, 10f, out var p, out _);
+            Check.True(!clamped, "not clamped");
+            Check.Near(20f, p.X, "x");
+            Check.Near(30f, p.Y, "y");
+        }
+
+        public static void ClampToCirclePullsPointsOntoTheInsetRim()
+        {
+            Check.True(MapMath.ClampToCircle(new Vector2(300f, 300f), 100f, 10f, out var p, out float angle), "clamped");
+            Check.Near(90f, p.Length(), "on the inset rim");
+            Check.Near(p.X, p.Y, "same direction");
+            Check.Near(45f, angle, "angle");
+        }
+
         public static void HeadingAngleIsRelativeToCamera()
         {
             Check.Near(0f, MapMath.HeadingToPanelAngle(new Vector2(0f, 1f), 0f), "facing +Z, yaw 0 -> up");

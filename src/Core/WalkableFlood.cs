@@ -31,6 +31,8 @@ namespace SpellBrigadeMinimap.Core
         public int MinY { get; private set; } = int.MaxValue;
         public int MaxX { get; private set; } = -1;
         public int MaxY { get; private set; } = -1;
+        /// <summary>Highest ground height found so far (float.MinValue until something is walkable).</summary>
+        public float MaxHeight { get; private set; } = float.MinValue;
         /// <summary>True once walkable ground reached the grid's edge (the level may be larger than the grid).</summary>
         public bool TouchedBorder { get; private set; }
         public bool HasWork => queue.Count > 0;
@@ -100,6 +102,7 @@ namespace SpellBrigadeMinimap.Core
                 states[i] = CellState.Walkable;
                 heights[i] = y;
                 WalkableCount++;
+                if (y > MaxHeight) MaxHeight = y;
                 if (cx < MinX) MinX = cx;
                 if (cx > MaxX) MaxX = cx;
                 if (cy < MinY) MinY = cy;
