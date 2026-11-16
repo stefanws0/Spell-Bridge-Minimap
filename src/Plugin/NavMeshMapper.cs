@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Linq;
 using SpellBrigadeMinimap.Core;
 using UnityEngine;
 using UnityEngine.AI;
@@ -20,13 +21,16 @@ namespace SpellBrigadeMinimap
     }
 
     /// <summary>
-    /// Builds the level layout by asking the NavMesh "is this cell walkable?" one cell at a time, flood-filling
-    /// outward within a small time budget each frame. The game build strips Unity's NavMesh triangle export
-    /// (CalculateTriangulation); SamplePosition is the NavMesh query it does ship.
+    /// Builds the minimap's picture of the level.
     ///
-    /// Pixelated style: the moment mapping finishes (usually while the player is still dropping in, so before
-    /// the landing splash), a top-down picture of the level is taken. Its colours are matched to the game
-    /// camera's view once the player has landed, and only then is the picture shown.
+    /// Layout: flood-fills the NavMesh cell by cell (SamplePosition is the NavMesh query this build ships), with a
+    /// physics ray per cell for rocks the NavMesh ignores; then renders every solid mesh alone for its exact
+    /// footprint, finds the arena inside its walls, and sorts cells into ground, obstacle and outside.
+    ///
+    /// Look (pixelated style): a top-down picture of the ground layer (terrain, flat ground surfaces, decals)
+    /// over a full top-down picture with effects hidden, brightness-matched to the game camera once the player
+    /// has landed, then painted over with what the game camera actually shows, every few seconds, as the
+    /// player explores.
     /// </summary>
     internal sealed class NavMeshMapper
     {
@@ -48,38 +52,46 @@ namespace SpellBrigadeMinimap
         const float Trim = 0.05f;
         const int MinObstacleCells = 3;      // smaller holes (pebbles) are drawn as ground
         const int ArenaSealRadius = 2;       // seals wall gaps up to 4 cells when separating the arena
-        const float MaxTintShift = 6f;       // the raw picture's tint is already close; only nudge it
+        const float MaxTintShift = 6f;       // the picture's tint is already close; only nudge it
         const int CalmRadius = 5;            // grass-calming filter: neighbourhood, strength, detail lift
         const float CalmStrength = 0.8f, CalmLift = 0.7f;
         const float SolidHeight = 1f;        // static scenery this far above the NavMesh blocks the cell
         const float RayStartHeight = 30f;
         const float MaxSolidShare = 0.6f;    // more cells blocked than this: something odd (a ceiling?), redo without physics
-        const int PhysicsMask = ~((1 << 2) | (1 << 5)); // everything but "Ignore Raycast" and UI
+        const int PhysicsMask = ~(1 << 5);   // everything but UI; scenery colliders often sit on "Ignore Raycast"
+        const float SolidCoverage = 0.5f;    // a cell at least this covered by a solid mesh is an obstacle
+        const float PaintSeconds = 2.5f;     // how often the game view is painted onto the map
+        const float PaintMinSamples = 3f;
+        const float OccluderHeight = 4f;     // rays crossing an obstacle this close to the ground show its side
+        const int DarkGround = 95;           // average ground brightness below which obstacles are drawn light
 
-        static bool usePhysics = true;
-        static int solidCells;
-
+        static readonly MapPalette FlatPalette = new MapPalette(
+            ground: new Rgba(58, 66, 74), groundEdge: new Rgba(253, 248, 206),
+            obstacle: new Rgba(34, 37, 42), obstacleEdge: new Rgba(16, 16, 18));
         // Colours follow the game's HUD: near-black outlines and a cream highlight.
-        static readonly MapPalette Palette = new MapPalette(
-            ground: new Rgba(58, 66, 74),
-            groundEdge: new Rgba(253, 248, 206),
-            obstacle: new Rgba(34, 37, 42),
-            obstacleEdge: new Rgba(16, 16, 18),
-            road: new Rgba(176, 172, 158));
-
-        const float MaxRoadShare = 0.5f;     // more of the ground than this "matching" means the keywords hit the ground itself
+        static readonly MapPalette ArtPalette = new MapPalette(
+            ground: default, groundEdge: new Rgba(253, 248, 206),
+            obstacle: new Rgba(16, 16, 18), obstacleEdge: new Rgba(16, 16, 18));
+        // On dark maps (the astral world) black obstacles vanish, so they are drawn as light stone instead.
+        static readonly MapPalette DarkGroundPalette = new MapPalette(
+            ground: default, groundEdge: new Rgba(253, 248, 206),
+            obstacle: new Rgba(200, 196, 184), obstacleEdge: new Rgba(16, 16, 18));
 
         static readonly GroundProbe Probe = ProbeNavMesh;
+        static bool usePhysics = true;
+        static int solidCells;
+        static readonly int[] solidLayers = new int[32];
 
         WalkableFlood flood;
         CellClass[] classes;
-        PixelBuffer rawArt;
-        float[] roadCover;
+        SceneryScan scenery;
+        PixelBuffer rawArt, baseArt;
+        ViewPainter painter;
         CropRect artCrop;
-        float floodStarted, nextPreview, nextRetry;
+        float floodStarted, nextPreview, nextRetry, nextPaint;
         int retries, probes;
         double busyMs;
-        bool failed, radarLogged, artFailed, artShown;
+        bool failed, radarLogged, artFailed, artShown, savedFinal;
 
         public BakedMap Map { get; private set; }
 
@@ -87,10 +99,11 @@ namespace SpellBrigadeMinimap
         {
             flood = null;
             classes = null;
-            rawArt = null;
-            roadCover = null;
+            scenery = null;
+            rawArt = baseArt = null;
+            painter = null;
             retries = 0;
-            failed = radarLogged = artFailed = artShown = false;
+            failed = radarLogged = artFailed = artShown = savedFinal = false;
             usePhysics = true;
             Map?.Destroy();
             Map = null;
@@ -115,6 +128,7 @@ namespace SpellBrigadeMinimap
                     probes = 0;
                     busyMs = 0;
                     solidCells = 0;
+                    Array.Clear(solidLayers, 0, solidLayers.Length);
                 }
                 if (flood.StateAt(g.x, g.z) == CellState.Unknown) flood.Seed(g.x, g.z, g.y);
             }
@@ -130,11 +144,11 @@ namespace SpellBrigadeMinimap
             => flood != null && flood.TryGroundHeight(p.x, p.z, out float y) && Math.Abs(p.y - y) <= GroundedTolerance;
 
         /// <summary>
-        /// Advances mapping within this frame's budget; when <paramref name="viewSettled"/> (the player has
-        /// landed and the game camera shows normal gameplay) shows the colour-matched level picture.
-        /// Returns true when <see cref="Map"/> changed.
+        /// Advances mapping within this frame's budget. Once <paramref name="viewSettled"/> (the player has landed
+        /// and the game camera shows normal gameplay), shows the level picture and keeps painting the game view
+        /// onto it. Returns true when <see cref="Map"/> changed.
         /// </summary>
-        public bool Tick(float now, bool viewSettled)
+        public bool Tick(float now, bool viewSettled, Vector3 player)
         {
             if (failed || flood == null) return false;
             try
@@ -146,10 +160,17 @@ namespace SpellBrigadeMinimap
                         RetryOrGiveUp(now);
                         return false;
                     }
-                    if (rawArt != null && !artShown && viewSettled)
+                    if (rawArt == null || !viewSettled) return false;
+                    if (!artShown)
                     {
                         artShown = true;
-                        return ShowArt();
+                        nextPaint = now + PaintSeconds;
+                        return ShowArt(player);
+                    }
+                    if (painter != null && Mod.Settings.PaintFromGameView.Value && now >= nextPaint)
+                    {
+                        nextPaint = now + PaintSeconds;
+                        return PaintGameView(player);
                     }
                     return false;
                 }
@@ -169,8 +190,9 @@ namespace SpellBrigadeMinimap
                         flood = null; // the next SeedNear starts over
                         return false;
                     }
-                    classes = ClassifyArena();
-                    bool changed = Replace(MapPainter.Paint(flood, classes, Palette, Padding), FilterMode.Bilinear);
+                    scenery = ScanScenery();
+                    classes = ClassifyArena(SolidSceneryCells());
+                    bool changed = Replace(MapPainter.Paint(flood, classes, FlatPalette, Padding), FilterMode.Bilinear);
                     LogFinished(now);
                     TakePicture();
                     return changed;
@@ -178,30 +200,93 @@ namespace SpellBrigadeMinimap
                 if (now >= nextPreview)
                 {
                     nextPreview = now + PreviewSeconds;
-                    return Replace(MapPainter.Paint(flood, null, Palette, Padding), FilterMode.Bilinear);
+                    return Replace(MapPainter.Paint(flood, null, FlatPalette, Padding), FilterMode.Bilinear);
                 }
                 return false;
             }
             catch (Exception e)
             {
                 failed = true;
-                LogOnce.Error("reading the NavMesh (showing radar mode)", e);
+                LogOnce.Error("building the minimap (showing radar mode)", e);
                 return false;
             }
         }
 
-        /// <summary>Ground / obstacle / outside, with NavMesh beyond the arena's walls counted as outside.</summary>
-        CellClass[] ClassifyArena()
+        // ---- layout -------------------------------------------------------------------------------------------
+
+        SceneryScan ScanScenery()
+        {
+            if (!MapPainter.TryCrop(flood, ArtPadding, out var crop)) return null;
+            try
+            {
+                float ox = flood.OriginX + crop.X * CellSize, oz = flood.OriginZ + crop.Y * CellSize;
+                return SceneryScan.Run(ox, oz, ox + crop.Width * CellSize, oz + crop.Height * CellSize,
+                    Mod.Settings.GroundKeywords.Value, Mod.Settings.SaveDebugImages.Value);
+            }
+            catch (Exception e)
+            {
+                LogOnce.Error("looking at the scenery", e);
+                return null;
+            }
+        }
+
+        /// <summary>Cells covered by solid meshes (rocks, walls, crystals), from one render of just those meshes.</summary>
+        bool[] SolidSceneryCells()
+        {
+            if (scenery == null || scenery.Solid.Count == 0 || !MapPainter.TryCrop(flood, ArtPadding, out var crop)) return null;
+            try
+            {
+                int layer = LevelSnapshot.FreeLayer();
+                if (layer < 0)
+                {
+                    LogOnce.Warn("no-free-layer", "No unused layer to render scenery on; obstacles come from the NavMesh and physics only.");
+                    return null;
+                }
+                float ox = flood.OriginX + crop.X * CellSize, oz = flood.OriginZ + crop.Y * CellSize;
+                var cover = LevelSnapshot.OnLayer(scenery.Solid.Select(r => r.gameObject), layer,
+                    () => LevelSnapshot.CaptureCoverage(ox, oz, crop.Width, crop.Height, CellSize, flood.MaxHeight, layer));
+
+                int n = flood.Size, cells = 0;
+                var solid = new bool[n * n];
+                var img = new PixelBuffer(crop.Width, crop.Height);
+                for (int y = 0; y < crop.Height; y++)
+                    for (int x = 0; x < crop.Width; x++)
+                    {
+                        if (cover[y * crop.Width + x] < SolidCoverage) continue;
+                        solid[(crop.Y + y) * n + crop.X + x] = true;
+                        img.SetPixel(x, y, Rgba.White);
+                        cells++;
+                    }
+                DebugImages.Save("0b-solid-scenery", img);
+                Mod.Log.LogInfo($"Solid scenery covers {cells} cells.");
+                return solid;
+            }
+            catch (Exception e)
+            {
+                LogOnce.Error("finding solid scenery", e);
+                return null;
+            }
+        }
+
+        /// <summary>Ground / obstacle / outside, with solid scenery as obstacles and NavMesh beyond the arena's walls as outside.</summary>
+        CellClass[] ClassifyArena(bool[] solid)
         {
             bool[] band = null;
             if (Mod.Settings.TrimOutsideArena.Value)
             {
-                band = ArenaFinder.FindOuterBand(flood, ArenaSealRadius, out float kept);
+                band = ArenaFinder.FindOuterBand(flood, ArenaSealRadius, out float kept, solid);
                 Mod.Log.LogInfo(band != null
                     ? $"Arena walls found: keeping {kept:P0} of the NavMesh, the rest is beyond the walls."
                     : $"No enclosing arena wall found (arena would keep {kept:P0}); showing all of the NavMesh.");
             }
-            var cls = MapPainter.Classify(flood, MinObstacleCells, band);
+            bool[] excluded = band;
+            if (solid != null)
+            {
+                excluded = (bool[])solid.Clone();
+                if (band != null)
+                    for (int i = 0; i < excluded.Length; i++) excluded[i] |= band[i];
+            }
+            var cls = MapPainter.Classify(flood, MinObstacleCells, excluded);
             SaveCellMap(cls, band);
             return cls;
         }
@@ -241,113 +326,168 @@ namespace SpellBrigadeMinimap
             flood = null; // the next SeedNear starts a fresh grid
         }
 
-        /// <summary>Takes the top-down picture now (kept hidden until its colours are matched).</summary>
+        // ---- look ---------------------------------------------------------------------------------------------
+
+        /// <summary>Takes the top-down pictures now (kept hidden until the player has landed).</summary>
         void TakePicture()
         {
-            rawArt = null;
-            artShown = false;
+            rawArt = baseArt = null;
+            painter = null;
+            artShown = savedFinal = false;
             if (artFailed || Mod.Settings.Style.Value != MapStyle.Pixelated) return;
             if (!MapPainter.TryCrop(flood, ArtPadding, out artCrop)) return;
             try
             {
                 var sw = Stopwatch.StartNew();
-                rawArt = LevelSnapshot.CaptureLevel(
-                    flood.OriginX + artCrop.X * CellSize, flood.OriginZ + artCrop.Y * CellSize,
-                    artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight);
-                Mod.Log.LogInfo($"Captured level picture: {artCrop.Width} x {artCrop.Height} pixels in {sw.ElapsedMilliseconds} ms.");
-                DebugImages.Save("1-level-picture", rawArt);
+                float ox = flood.OriginX + artCrop.X * CellSize, oz = flood.OriginZ + artCrop.Y * CellSize;
+                var full = LevelSnapshot.CaptureLevel(ox, oz, artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight, scenery?.Effects);
+                DebugImages.Save("1-level-picture", full);
+                var ground = GroundPicture(ox, oz, full);
+                rawArt = ground != null ? ArtFilter.Overlay(full, ground) : full;
+                Mod.Log.LogInfo($"Captured level picture: {artCrop.Width} x {artCrop.Height} pixels"
+                    + $"{(ground != null ? ", ground layer on top" : "")} in {sw.ElapsedMilliseconds} ms.");
             }
             catch (Exception e)
             {
                 artFailed = true;
                 LogOnce.Error("taking the level picture (keeping the flat map)", e);
-                return;
             }
-            FindRoads();
         }
 
-        void FindRoads()
+        /// <summary>
+        /// The ground on its own (terrain, flat ground surfaces, decals): no grass tufts, flowers, shadows from rocks,
+        /// spawn effects or tornadoes. Null if there is none, or if it came out unlit.
+        /// </summary>
+        PixelBuffer GroundPicture(float ox, float oz, PixelBuffer full)
         {
-            roadCover = null;
+            if (scenery == null || scenery.Ground.Count == 0) return null;
             try
             {
-                var cover = RoadFinder.Capture(
-                    flood.OriginX + artCrop.X * CellSize, flood.OriginZ + artCrop.Y * CellSize,
-                    artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight,
-                    Mod.Settings.RoadKeywords.Value, Mod.Settings.SaveDebugImages.Value);
-                if (cover == null) return;
+                int layer = LevelSnapshot.FreeLayer();
+                if (layer < 0) return null;
+                var pic = LevelSnapshot.OnLayer(scenery.Ground, layer,
+                    () => LevelSnapshot.CaptureLayerPicture(ox, oz, artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight, layer));
+                DebugImages.Save("1a-ground-picture", pic);
 
-                int n = flood.Size, ground = 0, road = 0;
-                var img = new PixelBuffer(artCrop.Width, artCrop.Height);
-                for (int y = 0; y < artCrop.Height; y++)
-                    for (int x = 0; x < artCrop.Width; x++)
+                // If the lights skip that layer, the ground comes out dark: then keep the full picture.
+                double groundLuma = 0, fullLuma = 0;
+                int count = 0;
+                for (int y = 0; y < pic.Height; y++)
+                    for (int x = 0; x < pic.Width; x++)
                     {
-                        bool isRoad = cover[y * artCrop.Width + x] >= MapPainter.RoadCoverage;
-                        if (isRoad) img.SetPixel(x, y, Rgba.White);
-                        if (classes[(artCrop.Y + y) * n + artCrop.X + x] != CellClass.Walkable) continue;
-                        ground++;
-                        if (isRoad) road++;
+                        Rgba g = pic.GetPixel(x, y);
+                        if (g.A == 0) continue;
+                        Rgba f = full.GetPixel(x, y);
+                        groundLuma += g.R * 0.299 + g.G * 0.587 + g.B * 0.114;
+                        fullLuma += f.R * 0.299 + f.G * 0.587 + f.B * 0.114;
+                        count++;
                     }
-                DebugImages.Save("1b-roads", img);
-                if (ground > 0 && road > ground * MaxRoadShare)
+                if (count == 0) return null;
+                if (groundLuma < fullLuma * 0.45)
                 {
-                    Mod.Log.LogWarning($"Roads: {road} of {ground} ground cells matched, so the keywords probably hit the ground itself; not drawing roads.");
-                    return;
+                    Mod.Log.LogWarning("The ground-only picture came out much darker than the full one (unlit?); using the full picture.");
+                    return null;
                 }
-                Mod.Log.LogInfo($"Roads: {road} of {ground} ground cells are road.");
-                roadCover = cover;
+                return pic;
             }
-            catch (Exception e) { LogOnce.Error("finding the roads", e); }
+            catch (Exception e)
+            {
+                LogOnce.Error("taking the ground picture", e);
+                return null;
+            }
         }
 
-        /// <summary>Matches the picture's colours to the game camera's view and swaps it in for the flat map.</summary>
-        bool ShowArt()
+        /// <summary>Matches the picture's brightness to the game camera's view, starts painting the game view on it, and shows it.</summary>
+        bool ShowArt(Vector3 player)
         {
-            PixelBuffer art = rawArt;
+            baseArt = rawArt;
+            PixelBuffer view = null;
+            System.Numerics.Matrix4x4 clipToWorld = default;
             try
             {
-                var view = LevelSnapshot.CaptureGameView(GameViewWidth);
+                view = LevelSnapshot.CaptureGameView(GameViewWidth, out clipToWorld);
                 DebugImages.Save("2-game-view", view);
                 if (view != null)
                 {
-                    // A ring around the screen center, upper 70% only: skips the player in the middle, the
-                    // vignette at the edges, and the skill bar and health bar along the bottom (row 0 = bottom).
-                    // Vivid pixels (spell effects, flowers, enemies) are skipped too: the last test's sample
-                    // caught a fire spell and tinted the whole map yellow.
-                    float cx = view.Width * 0.5f, cy = view.Height * 0.5f;
-                    float rMin = view.Height * 0.15f, rMax = view.Height * 0.45f, bottom = view.Height * 0.3f;
-                    var game = ColorMatch.Measure(view, (x, y) =>
-                    {
-                        if (y < bottom) return false;
-                        float dx = x + 0.5f - cx, dy = y + 0.5f - cy, d2 = dx * dx + dy * dy;
-                        if (d2 < rMin * rMin || d2 > rMax * rMax) return false;
-                        Rgba c = view.GetPixel(x, y);
-                        int hi = Math.Max(c.R, Math.Max(c.G, c.B)), lo = Math.Min(c.R, Math.Min(c.G, c.B));
-                        return hi - lo <= 110 && hi <= 235;
-                    }, Trim);
+                    var game = ColorMatch.Measure(view, Paintable(view), Trim);
                     int n = flood.Size;
                     var picture = ColorMatch.Measure(rawArt,
                         (x, y) => classes[(artCrop.Y + y) * n + artCrop.X + x] != CellClass.Outside, Trim);
                     if (game.Count > 100 && picture.Count > 100)
                     {
-                        art = ColorMatch.Transfer(rawArt, picture, game, MaxTintShift);
+                        baseArt = ColorMatch.Transfer(rawArt, picture, game, MaxTintShift);
                         Mod.Log.LogInfo($"Matched level picture colours. Picture: {picture}. Game view: {game}.");
                     }
                 }
             }
             catch (Exception e) { LogOnce.Error("matching the level picture's colours (showing it unmatched)", e); }
 
-            try
-            {
-                art = ArtFilter.CalmGrass(art, CalmRadius, CalmStrength, CalmLift);
-                DebugImages.Save("3-level-picture-matched", art);
-            }
-            catch (Exception e) { LogOnce.Error("calming the grass in the level picture", e); }
+            painter = new ViewPainter(artCrop.Width, artCrop.Height,
+                flood.OriginX + artCrop.X * CellSize, flood.OriginZ + artCrop.Y * CellSize, CellSize);
+            if (view != null && Mod.Settings.PaintFromGameView.Value) PaintInto(view, clipToWorld, player);
+            return Recompose();
+        }
 
+        bool PaintGameView(Vector3 player)
+        {
             try
             {
-                var painted = MapPainter.PaintArt(flood, classes, art, Palette, artCrop, Mod.Settings.HighlightObstacles.Value, roadCover);
-                DebugImages.Save("4-minimap", painted.Image);
+                var view = LevelSnapshot.CaptureGameView(GameViewWidth, out var clipToWorld);
+                if (view == null) return false;
+                PaintInto(view, clipToWorld, player);
+                return Recompose();
+            }
+            catch (Exception e)
+            {
+                painter = null; // stop trying; the picture stays as it is
+                LogOnce.Error("painting the game view onto the minimap", e);
+                return false;
+            }
+        }
+
+        void PaintInto(PixelBuffer view, System.Numerics.Matrix4x4 clipToWorld, Vector3 player)
+        {
+            float groundY = flood.TryGroundHeight(player.x, player.z, out float y) ? y : player.y;
+            int n = flood.Size;
+            painter.AddView(view, clipToWorld, groundY, Paintable(view),
+                (cx, cy) => classes[(artCrop.Y + cy) * n + artCrop.X + cx] != CellClass.Walkable, OccluderHeight);
+        }
+
+        /// <summary>
+        /// Pixels of a game-view picture worth using: not near the edges (vignette), not around the player in the
+        /// middle (their own body and spells), and not vivid (spell effects, flowers, enemies).
+        /// </summary>
+        static Func<int, int, bool> Paintable(PixelBuffer view)
+        {
+            float cx = view.Width * 0.5f, cy = view.Height * 0.5f, rMin = view.Height * 0.25f;
+            float mx = view.Width * 0.04f, my = view.Height * 0.04f;
+            return (x, y) =>
+            {
+                if (x < mx || x > view.Width - mx || y < my || y > view.Height - my) return false;
+                float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
+                if (dx * dx + dy * dy < rMin * rMin) return false;
+                Rgba c = view.GetPixel(x, y);
+                int hi = Math.Max(c.R, Math.Max(c.G, c.B)), lo = Math.Min(c.R, Math.Min(c.G, c.B));
+                return hi - lo <= 110 && hi <= 235;
+            };
+        }
+
+        /// <summary>Lays the painted game view over the base picture, calms the grass, and draws the minimap.</summary>
+        bool Recompose()
+        {
+            try
+            {
+                var art = baseArt;
+                if (painter != null) art = ArtFilter.Overlay(art, painter.Result(PaintMinSamples));
+                art = ArtFilter.CalmGrass(art, CalmRadius, CalmStrength, CalmLift);
+                var palette = GroundIsDark(art) ? DarkGroundPalette : ArtPalette;
+                var painted = MapPainter.PaintArt(flood, classes, art, palette, artCrop, Mod.Settings.HighlightObstacles.Value);
+                if (!savedFinal)
+                {
+                    savedFinal = true;
+                    DebugImages.Save("3-level-picture-matched", art);
+                    DebugImages.Save("4-minimap", painted.Image);
+                }
                 return Replace(painted, FilterMode.Point);
             }
             catch (Exception e)
@@ -356,6 +496,21 @@ namespace SpellBrigadeMinimap
                 LogOnce.Error("showing the level picture (keeping the flat map)", e);
                 return false;
             }
+        }
+
+        bool GroundIsDark(PixelBuffer art)
+        {
+            int n = flood.Size, count = 0;
+            double luma = 0;
+            for (int y = 0; y < art.Height; y++)
+                for (int x = 0; x < art.Width; x++)
+                {
+                    if (classes[(artCrop.Y + y) * n + artCrop.X + x] != CellClass.Walkable) continue;
+                    Rgba c = art.GetPixel(x, y);
+                    luma += c.R * 0.299 + c.G * 0.587 + c.B * 0.114;
+                    count++;
+                }
+            return count > 0 && luma / count < DarkGround;
         }
 
         bool Replace(PaintedMap painted, FilterMode filter)
@@ -378,8 +533,11 @@ namespace SpellBrigadeMinimap
         {
             float w = (flood.MaxX - flood.MinX + 1) * CellSize, h = (flood.MaxY - flood.MinY + 1) * CellSize;
             double usPerProbe = probes > 0 ? busyMs * 1000.0 / probes : 0.0;
+            string layers = string.Join(", ", solidLayers.Select((count, layer) => (count, layer)).Where(t => t.count > 0)
+                .OrderByDescending(t => t.count).Select(t => $"layer {t.layer}: {t.count}"));
             Mod.Log.LogInfo($"Mapped level layout: {flood.WalkableCount} walkable cells over {w:0} x {h:0} world units; "
-                + $"{solidCells} NavMesh cells blocked by solid scenery{(usePhysics ? "" : " (physics check off)")}; "
+                + $"{solidCells} NavMesh cells blocked by physics{(usePhysics ? "" : " (physics check off)")}"
+                + $"{(layers.Length > 0 ? $" ({layers})" : "")}; "
                 + $"{probes} probes ({usPerProbe:0.0} us each), {busyMs:0} ms of work spread over {now - floodStarted:0.0} s.");
             if (flood.TouchedBorder)
                 LogOnce.Warn("map-grid-border", $"The level is larger than the {GridSize * CellSize:0}-unit mapping grid; its far edges may be cut off.");
@@ -393,9 +551,10 @@ namespace SpellBrigadeMinimap
             float dx = p.x - x, dz = p.z - z;
             if (dx * dx + dz * dz > MaxCellOffset * MaxCellOffset) return false;
             y = p.y;
-            if (usePhysics && UnderSolidScenery(x, z, y))
+            if (usePhysics && UnderSolidScenery(x, z, y, out int layer))
             {
                 solidCells++;
+                solidLayers[layer]++;
                 return false;
             }
             return true;
@@ -406,13 +565,16 @@ namespace SpellBrigadeMinimap
         /// than <see cref="SolidHeight"/> above the ground means the cell is blocked. Anything with a rigidbody
         /// (players, enemies, projectiles) is ignored.
         /// </summary>
-        static bool UnderSolidScenery(float x, float z, float ground)
+        static bool UnderSolidScenery(float x, float z, float ground, out int layer)
         {
+            layer = 0;
             if (!Physics.Raycast(new Vector3(x, ground + RayStartHeight, z), Vector3.down, out RaycastHit hit,
                     RayStartHeight - SolidHeight, PhysicsMask, QueryTriggerInteraction.Ignore))
                 return false;
             var col = hit.collider;
-            return col != null && col.attachedRigidbody == null;
+            if (col == null || col.attachedRigidbody != null) return false;
+            layer = col.gameObject.layer;
+            return true;
         }
     }
 }

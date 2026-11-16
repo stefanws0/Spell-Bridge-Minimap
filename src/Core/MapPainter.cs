@@ -7,15 +7,14 @@ namespace SpellBrigadeMinimap.Core
 
     public readonly struct MapPalette
     {
-        public readonly Rgba Ground, GroundEdge, Obstacle, ObstacleEdge, Road;
+        public readonly Rgba Ground, GroundEdge, Obstacle, ObstacleEdge;
 
-        public MapPalette(Rgba ground, Rgba groundEdge, Rgba obstacle, Rgba obstacleEdge, Rgba road = default)
+        public MapPalette(Rgba ground, Rgba groundEdge, Rgba obstacle, Rgba obstacleEdge)
         {
             Ground = ground;
             GroundEdge = groundEdge;
             Obstacle = obstacle;
             ObstacleEdge = obstacleEdge;
-            Road = road;
         }
     }
 
@@ -48,14 +47,6 @@ namespace SpellBrigadeMinimap.Core
 
     public static class MapPainter
     {
-        /// <summary>A cell counts as road when at least this share of it is covered by road.</summary>
-        public const float RoadCoverage = 0.3f;
-
-        static Rgba Blend(Rgba a, Rgba b, float t) => new Rgba(
-            (byte)Math.Round(a.R + (b.R - a.R) * t),
-            (byte)Math.Round(a.G + (b.G - a.G) * t),
-            (byte)Math.Round(a.B + (b.B - a.B) * t),
-            255);
 
         /// <summary>The walkable area's bounding box grown by <paramref name="pad"/> cells, clipped to the grid.</summary>
         public static bool TryCrop(WalkableFlood f, int pad, out CropRect crop)
@@ -71,17 +62,13 @@ namespace SpellBrigadeMinimap.Core
 
         /// <summary>
         /// Composes captured level art (one pixel per cell of <paramref name="crop"/>) with the cell classes:
-        /// ground shows the art, with roads (cells whose <paramref name="roads"/> coverage is at least
-        /// <see cref="RoadCoverage"/>) blended 80% toward the road colour; ground next to the outside is a solid edge
-        /// line; obstacles are filled with the obstacle edge colour when <paramref name="highlightObstacles"/> is on
-        /// (plain art when off); the cells just outside the arena edge get the obstacle edge colour too, and the rest
-        /// of the outside is transparent.
+        /// ground shows the art; ground next to the outside is a solid edge line; obstacles are filled with the
+        /// obstacle colour when <paramref name="highlightObstacles"/> is on (plain art when off); the cells just
+        /// outside the arena edge get the obstacle edge colour, and the rest of the outside is transparent.
         /// </summary>
         public static PaintedMap PaintArt(WalkableFlood f, CellClass[] cls, PixelBuffer art, in MapPalette palette, CropRect crop,
-            bool highlightObstacles, float[] roads = null)
+            bool highlightObstacles)
         {
-            if (roads != null && roads.Length != crop.Width * crop.Height)
-                throw new ArgumentException("roads must be one value per cell of the crop", nameof(roads));
             if (art.Width != crop.Width || art.Height != crop.Height)
                 throw new ArgumentException("art must be one pixel per cell of the crop", nameof(art));
             int n = f.Size;
@@ -102,12 +89,10 @@ namespace SpellBrigadeMinimap.Core
                     switch (At(cx, cy))
                     {
                         case CellClass.Walkable:
-                            if (Touches(cx, cy, CellClass.Outside)) c = palette.GroundEdge;
-                            else if (roads != null && palette.Road.A > 0 && roads[y * crop.Width + x] >= RoadCoverage) c = Blend(a, palette.Road, 0.8f);
-                            else c = a;
+                            c = Touches(cx, cy, CellClass.Outside) ? palette.GroundEdge : a;
                             break;
                         case CellClass.Obstacle:
-                            c = highlightObstacles ? palette.ObstacleEdge : a;
+                            c = highlightObstacles ? palette.Obstacle : a;
                             break;
                         default:
                             // A dark line just outside the arena edge, like the outlines on obstacles.

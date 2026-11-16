@@ -13,8 +13,8 @@ namespace SpellBrigadeMinimap
         public readonly ConfigEntry<ScreenCorner> Corner;
         public readonly ConfigEntry<MapShape> Shape;
         public readonly ConfigEntry<MapStyle> Style;
-        public readonly ConfigEntry<bool> HighlightObstacles, TrimOutsideArena;
-        public readonly ConfigEntry<string> RoadKeywords;
+        public readonly ConfigEntry<bool> HighlightObstacles, TrimOutsideArena, PaintFromGameView;
+        public readonly ConfigEntry<string> GroundKeywords;
         public readonly ConfigEntry<float> Size, Margin, BottomOffset, Opacity;
         public readonly ConfigEntry<float> Radius, MinRadius, MaxRadius;
         public readonly ConfigEntry<bool> RotateWithCamera;
@@ -33,8 +33,10 @@ namespace SpellBrigadeMinimap
             Style = f.Bind("Look", "Style", MapStyle.Pixelated, "Pixelated: a pixel-art picture of the level itself, taken at the start of each run. Flat: plain colours for ground and obstacles.");
             HighlightObstacles = f.Bind("Look", "HighlightObstacles", true, "Pixelated style: draw a rim around obstacles (rocks, trees, walls) so they stand out.");
             TrimOutsideArena = f.Bind("Look", "TrimOutsideArena", true, "Hide the ground beyond the arena's walls (where enemies come from). Turn off if a map loses parts it shouldn't.");
-            RoadKeywords = f.Bind("Look", "RoadKeywords", "path,road,cobble,pave,street,brick,walkway",
-                "Pixelated style: flat objects and decals whose material, mesh or object name contains one of these words are drawn as roads. Comma-separated; empty turns roads off.");
+            PaintFromGameView = f.Bind("Look", "PaintFromGameView", true,
+                "Pixelated style: colour the minimap with what the game camera has shown, updated every few seconds as you explore. Parts you haven't seen use the top-down picture.");
+            GroundKeywords = f.Bind("Look", "GroundKeywords", "lava,water,river,lake,sea,ocean,ice,patch,ground,path,road,cobble,pave,street,brick,sand,mud,snow,floor,puddle",
+                "Pixelated style: flat meshes whose material, mesh or object name contains one of these words are part of the ground picture (with the terrain and decals). Comma-separated.");
             Size = f.Bind("Layout", "Size", 220f, new ConfigDescription("Side length in pixels at 1080p.", new AcceptableValueRange<float>(100f, 600f)));
             Margin = f.Bind("Layout", "Margin", 16f, new ConfigDescription("Gap from the screen edges in pixels at 1080p.", new AcceptableValueRange<float>(0f, 200f)));
             BottomOffset = f.Bind("Layout", "BottomOffset", 30f, new ConfigDescription("Extra gap below the minimap in a bottom corner, so it sits above the game's text bar (pixels at 1080p).", new AcceptableValueRange<float>(0f, 400f)));

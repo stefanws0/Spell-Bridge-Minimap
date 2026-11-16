@@ -24,8 +24,12 @@ namespace SpellBrigadeMinimap
         static readonly Rgba CoverageKey = new Rgba(255, 0, 255);
         static bool fogLogged, gradingLogged;
 
-        /// <summary>Renders the world rectangle straight down and returns one averaged pixel per cell.</summary>
-        public static PixelBuffer CaptureLevel(float originX, float originZ, int cellsW, int cellsH, float cellSize, float groundY)
+        /// <summary>
+        /// Renders the world rectangle straight down and returns one averaged pixel per cell. Players, enemies,
+        /// effects and <paramref name="alsoHide"/> (e.g. respawn circles) are hidden for the render.
+        /// </summary>
+        public static PixelBuffer CaptureLevel(float originX, float originZ, int cellsW, int cellsH, float cellSize, float groundY,
+            IList<Renderer> alsoHide = null)
         {
             if (!fogLogged)
             {
@@ -40,6 +44,9 @@ namespace SpellBrigadeMinimap
                 cam =>
                 {
                     HideMovingThings(hidden);
+                    if (alsoHide != null)
+                        foreach (var r in alsoHide)
+                            if (r != null && r.enabled) { r.enabled = false; hidden.Add(r); }
                     DisableLensEffects(lensEffectsOff);
                     UseGameColourGrading(cam);
                 },
@@ -51,6 +58,61 @@ namespace SpellBrigadeMinimap
                         if (c != null) c.active = true;
                 });
             return PixelBuffer.Downsample(bytes, cellsW * ss, cellsH * ss, ss);
+        }
+
+        /// <summary>
+        /// Renders only <paramref name="layer"/> straight down, with the game's colour grading, over a key colour.
+        /// Each cell becomes the average of what was drawn in it; cells where nothing was drawn are transparent.
+        /// </summary>
+        public static PixelBuffer CaptureLayerPicture(float originX, float originZ, int cellsW, int cellsH, float cellSize, float groundY, int layer)
+        {
+            int ss = SupersampleFor(cellsW, cellsH);
+            var lensEffectsOff = new List<VolumeComponent>();
+            byte[] bytes = RenderTopDown(originX, originZ, cellsW, cellsH, cellSize, groundY, ss, 1 << layer, new Color(1f, 0f, 1f, 1f),
+                cam =>
+                {
+                    DisableLensEffects(lensEffectsOff);
+                    UseGameColourGrading(cam);
+                },
+                () =>
+                {
+                    foreach (var c in lensEffectsOff)
+                        if (c != null) c.active = true;
+                });
+            return PixelBuffer.DownsampleIgnoringKey(bytes, cellsW * ss, cellsH * ss, ss, CoverageKey, 24);
+        }
+
+        /// <summary>The highest layer from 8 up that no renderer in the scene uses, or -1.</summary>
+        public static int FreeLayer()
+        {
+            var used = new bool[32];
+            var all = UObject.FindObjectsOfType<Renderer>();
+            for (int i = 0; i < all.Length; i++)
+                if (all[i] != null) used[all[i].gameObject.layer] = true;
+            for (int layer = 31; layer >= 8; layer--)
+                if (!used[layer]) return layer;
+            return -1;
+        }
+
+        /// <summary>Moves the objects to <paramref name="layer"/>, runs <paramref name="body"/>, and always moves them back.</summary>
+        public static T OnLayer<T>(IEnumerable<GameObject> objects, int layer, Func<T> body)
+        {
+            var moved = new List<(GameObject go, int layer)>();
+            try
+            {
+                foreach (var go in objects)
+                {
+                    if (go == null) continue;
+                    moved.Add((go, go.layer));
+                    go.layer = layer;
+                }
+                return body();
+            }
+            finally
+            {
+                foreach (var (go, old) in moved)
+                    if (go != null) go.layer = old;
+            }
         }
 
         /// <summary>Renders only <paramref name="layer"/> straight down over a key colour; returns per-cell coverage.</summary>
@@ -114,9 +176,14 @@ namespace SpellBrigadeMinimap
             }
         }
 
-        /// <summary>Renders the game camera once into a small texture (no overlay UI). Null without a main camera.</summary>
-        public static PixelBuffer CaptureGameView(int width)
+        /// <summary>
+        /// Renders the game camera once into a small texture (no overlay UI). Null without a main camera.
+        /// <paramref name="clipToWorld"/> maps the picture's clip coordinates back to the world (System.Numerics,
+        /// row-vector convention), for projecting it onto the ground.
+        /// </summary>
+        public static PixelBuffer CaptureGameView(int width, out System.Numerics.Matrix4x4 clipToWorld)
         {
+            clipToWorld = System.Numerics.Matrix4x4.Identity;
             var main = Camera.main;
             if (main == null) return null;
             float aspect = main.pixelHeight > 0 ? (float)main.pixelWidth / main.pixelHeight : 16f / 9f;
@@ -127,6 +194,9 @@ namespace SpellBrigadeMinimap
             {
                 main.targetTexture = rt;
                 main.Render();
+                // Unity: clip = P * V * world (column vectors). Transposed into System.Numerics: clip = world * V^T * P^T.
+                var viewProj = ToNumerics(main.worldToCameraMatrix) * ToNumerics(main.projectionMatrix);
+                if (!System.Numerics.Matrix4x4.Invert(viewProj, out clipToWorld)) clipToWorld = System.Numerics.Matrix4x4.Identity;
                 main.targetTexture = previousTarget;
                 return PixelBuffer.Downsample(ReadBack(rt, w, h), w, h, 1);
             }
@@ -136,6 +206,13 @@ namespace SpellBrigadeMinimap
                 RenderTexture.ReleaseTemporary(rt);
             }
         }
+
+        /// <summary>A Unity matrix (column vectors) as its System.Numerics transpose (row vectors).</summary>
+        static System.Numerics.Matrix4x4 ToNumerics(Matrix4x4 m) => new System.Numerics.Matrix4x4(
+            m.m00, m.m10, m.m20, m.m30,
+            m.m01, m.m11, m.m21, m.m31,
+            m.m02, m.m12, m.m22, m.m32,
+            m.m03, m.m13, m.m23, m.m33);
 
         static byte[] ReadBack(RenderTexture rt, int w, int h)
         {

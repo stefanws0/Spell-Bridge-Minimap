@@ -78,7 +78,7 @@ namespace SpellBrigadeMinimap
             else groundedSince = -1f;
             bool settled = started && ((groundedSince >= 0f && now - groundedSince >= SettleSeconds)
                                        || now - runStartedAt >= SettleFallbackSeconds);
-            if (mapper.Tick(now, settled)) view.SetMap(mapper.Map);
+            if (mapper.Tick(now, settled, player)) view.SetMap(mapper.Map);
 
             if (!started || !scanner.HasCenter || !cfg.Enabled.Value || hidden || Time.timeScale == 0f)
             {
