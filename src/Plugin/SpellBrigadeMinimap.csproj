@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SpellBrigadeMinimap</AssemblyName>
+    <RootNamespace>SpellBrigadeMinimap</RootNamespace>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DebugType>none</DebugType>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <Version>1.0.0</Version>
+    <!-- Override with -p:BepInExDir=... for another profile or a game-folder install. -->
+    <BepInExDir Condition="'$(BepInExDir)' == ''">$(APPDATA)\r2modmanPlus-local\TheSpellBrigade\profiles\Default\BepInEx</BepInExDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Core\**\*.cs" Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="$(BepInExDir)\core\*.dll" Exclude="$(BepInExDir)\core\dobby.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\*.dll" Exclude="$(BepInExDir)\interop\UnityEngine.dll" Private="false" />
+  </ItemGroup>
+
+  <!-- dotnet build -c Release -p:Deploy=true copies the DLL into the profile's plugins folder. -->
+  <Target Name="Deploy" AfterTargets="Build" Condition="'$(Deploy)' == 'true'">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins\SpellBrigadeMinimap" />
+    <Message Importance="high" Text="Deployed $(TargetFileName) to $(BepInExDir)\plugins\SpellBrigadeMinimap" />
+  </Target>
+</Project>
