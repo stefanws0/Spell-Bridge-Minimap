@@ -64,13 +64,17 @@ namespace SpellBrigadeMinimap
             ground: new Rgba(58, 66, 74),
             groundEdge: new Rgba(253, 248, 206),
             obstacle: new Rgba(34, 37, 42),
-            obstacleEdge: new Rgba(16, 16, 18));
+            obstacleEdge: new Rgba(16, 16, 18),
+            road: new Rgba(176, 172, 158));
+
+        const float MaxRoadShare = 0.5f;     // more of the ground than this "matching" means the keywords hit the ground itself
 
         static readonly GroundProbe Probe = ProbeNavMesh;
 
         WalkableFlood flood;
         CellClass[] classes;
         PixelBuffer rawArt;
+        float[] roadCover;
         CropRect artCrop;
         float floodStarted, nextPreview, nextRetry;
         int retries, probes;
@@ -84,6 +88,7 @@ namespace SpellBrigadeMinimap
             flood = null;
             classes = null;
             rawArt = null;
+            roadCover = null;
             retries = 0;
             failed = radarLogged = artFailed = artShown = false;
             usePhysics = true;
@@ -256,7 +261,43 @@ namespace SpellBrigadeMinimap
             {
                 artFailed = true;
                 LogOnce.Error("taking the level picture (keeping the flat map)", e);
+                return;
             }
+            FindRoads();
+        }
+
+        void FindRoads()
+        {
+            roadCover = null;
+            try
+            {
+                var cover = RoadFinder.Capture(
+                    flood.OriginX + artCrop.X * CellSize, flood.OriginZ + artCrop.Y * CellSize,
+                    artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight,
+                    Mod.Settings.RoadKeywords.Value, Mod.Settings.SaveDebugImages.Value);
+                if (cover == null) return;
+
+                int n = flood.Size, ground = 0, road = 0;
+                var img = new PixelBuffer(artCrop.Width, artCrop.Height);
+                for (int y = 0; y < artCrop.Height; y++)
+                    for (int x = 0; x < artCrop.Width; x++)
+                    {
+                        bool isRoad = cover[y * artCrop.Width + x] >= MapPainter.RoadCoverage;
+                        if (isRoad) img.SetPixel(x, y, Rgba.White);
+                        if (classes[(artCrop.Y + y) * n + artCrop.X + x] != CellClass.Walkable) continue;
+                        ground++;
+                        if (isRoad) road++;
+                    }
+                DebugImages.Save("1b-roads", img);
+                if (ground > 0 && road > ground * MaxRoadShare)
+                {
+                    Mod.Log.LogWarning($"Roads: {road} of {ground} ground cells matched, so the keywords probably hit the ground itself; not drawing roads.");
+                    return;
+                }
+                Mod.Log.LogInfo($"Roads: {road} of {ground} ground cells are road.");
+                roadCover = cover;
+            }
+            catch (Exception e) { LogOnce.Error("finding the roads", e); }
         }
 
         /// <summary>Matches the picture's colours to the game camera's view and swaps it in for the flat map.</summary>
@@ -305,7 +346,7 @@ namespace SpellBrigadeMinimap
 
             try
             {
-                var painted = MapPainter.PaintArt(flood, classes, art, Palette, artCrop, Mod.Settings.HighlightObstacles.Value);
+                var painted = MapPainter.PaintArt(flood, classes, art, Palette, artCrop, Mod.Settings.HighlightObstacles.Value, roadCover);
                 DebugImages.Save("4-minimap", painted.Image);
                 return Replace(painted, FilterMode.Point);
             }

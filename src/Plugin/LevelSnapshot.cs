@@ -12,7 +12,8 @@ namespace SpellBrigadeMinimap
 {
     /// <summary>
     /// Pictures for the minimap: a top-down picture of the level (players, enemies and effects hidden for
-    /// that one render), and a small render of what the game camera sees, used to match colours.
+    /// that one render, the game's colour grading on), a top-down coverage render of a single layer (used for
+    /// roads), and a small render of what the game camera sees, used to match colours.
     /// </summary>
     internal static class LevelSnapshot
     {
@@ -20,7 +21,8 @@ namespace SpellBrigadeMinimap
         const int MaxTextureSide = 2048;
         const float CameraHeight = 12f;     // above the highest ground; low, because fog grows with distance
         const int UiLayer = 5;
-        static bool fogLogged;
+        static readonly Rgba CoverageKey = new Rgba(255, 0, 255);
+        static bool fogLogged, gradingLogged;
 
         /// <summary>Renders the world rectangle straight down and returns one averaged pixel per cell.</summary>
         public static PixelBuffer CaptureLevel(float originX, float originZ, int cellsW, int cellsH, float cellSize, float groundY)
@@ -31,16 +33,55 @@ namespace SpellBrigadeMinimap
                 try { Mod.Log.LogInfo($"Scene fog is {(RenderSettings.fog ? "on" : "off")}."); } catch { }
             }
 
+            int ss = SupersampleFor(cellsW, cellsH);
+            var hidden = new List<Renderer>();
+            var lensEffectsOff = new List<VolumeComponent>();
+            byte[] bytes = RenderTopDown(originX, originZ, cellsW, cellsH, cellSize, groundY, ss, ~(1 << UiLayer), Color.black,
+                cam =>
+                {
+                    HideMovingThings(hidden);
+                    DisableLensEffects(lensEffectsOff);
+                    UseGameColourGrading(cam);
+                },
+                () =>
+                {
+                    foreach (var r in hidden)
+                        if (r != null) r.enabled = true;
+                    foreach (var c in lensEffectsOff)
+                        if (c != null) c.active = true;
+                });
+            return PixelBuffer.Downsample(bytes, cellsW * ss, cellsH * ss, ss);
+        }
+
+        /// <summary>Renders only <paramref name="layer"/> straight down over a key colour; returns per-cell coverage.</summary>
+        public static float[] CaptureCoverage(float originX, float originZ, int cellsW, int cellsH, float cellSize, float groundY, int layer)
+        {
+            int ss = SupersampleFor(cellsW, cellsH);
+            byte[] bytes = RenderTopDown(originX, originZ, cellsW, cellsH, cellSize, groundY, ss, 1 << layer,
+                new Color(1f, 0f, 1f, 1f), null, null);
+            return PixelBuffer.CoverageOfNonKey(bytes, cellsW * ss, cellsH * ss, ss, CoverageKey, 24);
+        }
+
+        static int SupersampleFor(int cellsW, int cellsH)
+        {
             int ss = Supersample;
             while (ss > 1 && (cellsW * ss > MaxTextureSide || cellsH * ss > MaxTextureSide)) ss--;
+            return ss;
+        }
+
+        /// <summary>
+        /// One orthographic render looking straight down at the rectangle, +Z up in the image and +X right
+        /// (matching the map grid). <paramref name="before"/> runs right before the render, <paramref name="after"/>
+        /// right after it (even if it fails).
+        /// </summary>
+        static byte[] RenderTopDown(float originX, float originZ, int cellsW, int cellsH, float cellSize, float groundY, int ss,
+            int cullingMask, Color background, Action<Camera> before, Action after)
+        {
             int w = cellsW * ss, h = cellsH * ss;
             float worldW = cellsW * cellSize, worldH = cellsH * cellSize;
-
             var rt = RenderTexture.GetTemporary(w, h, 24, RenderTextureFormat.ARGB32);
             var go = new GameObject("SpellBrigadeMinimap_Snapshot");
             Camera cam = null;
-            var hidden = new List<Renderer>();
-            var lensEffectsOff = new List<VolumeComponent>();
             try
             {
                 cam = go.AddComponent<Camera>();
@@ -51,25 +92,19 @@ namespace SpellBrigadeMinimap
                 cam.nearClipPlane = 0.3f;
                 cam.farClipPlane = CameraHeight + 80f;
                 cam.clearFlags = CameraClearFlags.SolidColor;
-                cam.backgroundColor = Color.black;
-                cam.cullingMask = ~(1 << UiLayer);
+                cam.backgroundColor = background;
+                cam.cullingMask = cullingMask;
                 cam.targetTexture = rt;
-                // Looking straight down with +Z up in the image and +X to the right, matching the map grid.
                 go.transform.position = new Vector3(originX + worldW * 0.5f, groundY + CameraHeight, originZ + worldH * 0.5f);
                 go.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
 
-                HideMovingThings(hidden);
-                DisableLensEffects(lensEffectsOff);
-                UseGameColourGrading(cam);
-                try { cam.Render(); }
-                finally
+                try
                 {
-                    foreach (var r in hidden)
-                        if (r != null) r.enabled = true;
-                    foreach (var c in lensEffectsOff)
-                        if (c != null) c.active = true;
+                    before?.Invoke(cam);
+                    cam.Render();
                 }
-                return PixelBuffer.Downsample(ReadBack(rt, w, h), w, h, ss);
+                finally { after?.Invoke(); }
+                return ReadBack(rt, w, h);
             }
             finally
             {
@@ -154,8 +189,6 @@ namespace SpellBrigadeMinimap
             }
             catch (Exception e) { LogOnce.Error("using the game's colour grading for the level picture", e); }
         }
-
-        static bool gradingLogged;
 
         /// <summary>Switches off camera-lens effects (vignette, depth of field, ...) in every active volume for one render.</summary>
         static void DisableLensEffects(List<VolumeComponent> disabled)
