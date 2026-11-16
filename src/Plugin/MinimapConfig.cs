@@ -14,7 +14,7 @@ namespace SpellBrigadeMinimap
         public readonly ConfigEntry<MapShape> Shape;
         public readonly ConfigEntry<MapStyle> Style;
         public readonly ConfigEntry<bool> HighlightObstacles;
-        public readonly ConfigEntry<float> Size, Margin, Opacity;
+        public readonly ConfigEntry<float> Size, Margin, BottomOffset, Opacity;
         public readonly ConfigEntry<float> Radius, MinRadius, MaxRadius;
         public readonly ConfigEntry<bool> RotateWithCamera;
         public readonly ConfigEntry<bool> ShowEnemies, ShowObjectives, ShowPickups, ShowTeammates, ShowMoreEvents;
@@ -32,6 +32,7 @@ namespace SpellBrigadeMinimap
             HighlightObstacles = f.Bind("Look", "HighlightObstacles", true, "Pixelated style: draw a rim around obstacles (rocks, trees, walls) so they stand out.");
             Size = f.Bind("Layout", "Size", 220f, new ConfigDescription("Side length in pixels at 1080p.", new AcceptableValueRange<float>(100f, 600f)));
             Margin = f.Bind("Layout", "Margin", 16f, new ConfigDescription("Gap from the screen edges in pixels at 1080p.", new AcceptableValueRange<float>(0f, 200f)));
+            BottomOffset = f.Bind("Layout", "BottomOffset", 30f, new ConfigDescription("Extra gap below the minimap in a bottom corner, so it sits above the game's text bar (pixels at 1080p).", new AcceptableValueRange<float>(0f, 400f)));
             Opacity = f.Bind("Layout", "Opacity", 0.85f, new ConfigDescription("Opacity of the whole minimap.", new AcceptableValueRange<float>(0.2f, 1f)));
 
             Radius = f.Bind("View", "Radius", 40f, new ConfigDescription("World units shown from the center to the edge when a run starts.", new AcceptableValueRange<float>(5f, 500f)));

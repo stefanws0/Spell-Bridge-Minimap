@@ -9,28 +9,34 @@ using UObject = UnityEngine.Object;
 namespace SpellBrigadeMinimap
 {
     /// <summary>
-    /// Takes one top-down picture of the level with a temporary orthographic camera and returns it as one
-    /// averaged pixel per map cell. Players, enemies and effects are hidden for that single render only.
+    /// Pictures for the minimap: a top-down picture of the level (players, enemies and effects hidden for
+    /// that one render), and a small render of what the game camera sees, used to match colours.
     /// </summary>
     internal static class LevelSnapshot
     {
         const int Supersample = 4;          // render pixels per cell side, averaged down to one
         const int MaxTextureSide = 2048;
-        const float CameraHeight = 40f;     // above the highest ground, roughly the game camera's distance
+        const float CameraHeight = 30f;     // above the highest ground
         const int UiLayer = 5;
+        static bool fogLogged;
 
-        public static PixelBuffer Capture(float originX, float originZ, int cellsW, int cellsH, float cellSize, float groundY)
+        /// <summary>Renders the world rectangle straight down and returns one averaged pixel per cell.</summary>
+        public static PixelBuffer CaptureLevel(float originX, float originZ, int cellsW, int cellsH, float cellSize, float groundY)
         {
+            if (!fogLogged)
+            {
+                fogLogged = true;
+                try { Mod.Log.LogInfo($"Scene fog is {(RenderSettings.fog ? "on" : "off")}."); } catch { }
+            }
+
             int ss = Supersample;
             while (ss > 1 && (cellsW * ss > MaxTextureSide || cellsH * ss > MaxTextureSide)) ss--;
             int w = cellsW * ss, h = cellsH * ss;
             float worldW = cellsW * cellSize, worldH = cellsH * cellSize;
 
-            var previousActive = RenderTexture.active;
             var rt = RenderTexture.GetTemporary(w, h, 24, RenderTextureFormat.ARGB32);
             var go = new GameObject("SpellBrigadeMinimap_Snapshot");
             Camera cam = null;
-            Texture2D tex = null;
             var hidden = new List<Renderer>();
             try
             {
@@ -56,7 +62,45 @@ namespace SpellBrigadeMinimap
                     foreach (var r in hidden)
                         if (r != null) r.enabled = true;
                 }
+                return PixelBuffer.Downsample(ReadBack(rt, w, h), w, h, ss);
+            }
+            finally
+            {
+                if (cam != null) cam.targetTexture = null;
+                UObject.Destroy(go);
+                RenderTexture.ReleaseTemporary(rt);
+            }
+        }
 
+        /// <summary>Renders the game camera once into a small texture (no overlay UI). Null without a main camera.</summary>
+        public static PixelBuffer CaptureGameView(int width)
+        {
+            var main = Camera.main;
+            if (main == null) return null;
+            float aspect = main.pixelHeight > 0 ? (float)main.pixelWidth / main.pixelHeight : 16f / 9f;
+            int w = width, h = Math.Max(1, (int)(width / aspect));
+            var rt = RenderTexture.GetTemporary(w, h, 24, RenderTextureFormat.ARGB32);
+            var previousTarget = main.targetTexture;
+            try
+            {
+                main.targetTexture = rt;
+                main.Render();
+                main.targetTexture = previousTarget;
+                return PixelBuffer.Downsample(ReadBack(rt, w, h), w, h, 1);
+            }
+            finally
+            {
+                main.targetTexture = previousTarget;
+                RenderTexture.ReleaseTemporary(rt);
+            }
+        }
+
+        static byte[] ReadBack(RenderTexture rt, int w, int h)
+        {
+            var previousActive = RenderTexture.active;
+            Texture2D tex = null;
+            try
+            {
                 RenderTexture.active = rt;
                 tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
                 tex.ReadPixels(new Rect(0f, 0f, w, h), 0, 0, false);
@@ -68,15 +112,12 @@ namespace SpellBrigadeMinimap
                 // An IL2CPP array's elements start after its 4-pointer header (class, monitor, bounds, length);
                 // Color32 is 4 bytes laid out r, g, b, a, the same as our RGBA buffer.
                 Marshal.Copy(IntPtr.Add(pixels.Pointer, 4 * IntPtr.Size), bytes, 0, bytes.Length);
-                return PixelBuffer.Downsample(bytes, w, h, ss);
+                return bytes;
             }
             finally
             {
                 RenderTexture.active = previousActive;
-                if (cam != null) cam.targetTexture = null;
                 if (tex != null) UObject.Destroy(tex);
-                UObject.Destroy(go);
-                RenderTexture.ReleaseTemporary(rt);
             }
         }
 

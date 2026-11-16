@@ -10,7 +10,7 @@ namespace SpellBrigadeMinimap
     internal sealed class MinimapView
     {
         const int DotTextureSize = 128;
-        const float BorderWidth = 2f;
+        const float SquareBorder = 2f;
         static readonly Color FrameColor = new Color(0.85f, 0.88f, 0.95f, 0.9f);
         static readonly Color Background = new Color(0.06f, 0.07f, 0.1f, 0.75f);
         static readonly Rgba EnemyColor = new Rgba(235, 64, 52);
@@ -23,8 +23,8 @@ namespace SpellBrigadeMinimap
 
         readonly MinimapConfig cfg;
         readonly GameObject root;
-        readonly RectTransform frame, mapRoot;
-        readonly Image frameImg, panelImg;
+        readonly RectTransform frame, panel, mapRoot;
+        readonly Image frameImg, panelImg, bezel;
         readonly RectMask2D squareMask;
         readonly Mask roundMask;
         readonly CanvasGroup group;
@@ -37,7 +37,8 @@ namespace SpellBrigadeMinimap
 
         BakedMap map;
         bool visible = true, dotsEmpty, round;
-        float lastSize = -1f, lastMargin = -1f;
+        float panelInset = SquareBorder;
+        float lastSize = -1f, lastMargin = -1f, lastBottomOffset = -1f;
         ScreenCorner lastCorner = (ScreenCorner)(-1);
         MapShape lastShape = (MapShape)(-1);
 
@@ -60,8 +61,9 @@ namespace SpellBrigadeMinimap
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.matchWidthOrHeight = 1f;
 
-            // The frame is a filled shape in the border colour; the panel is the same shape inset by the
-            // border width, so a thin rim of frame shows around it. The panel also masks everything inside.
+            // Square: the frame is a filled square in the border colour and the panel is inset by a thin border.
+            // Round: the frame is invisible, the panel is a disc inset to the bezel's inner edge, and the bezel
+            // (gold rim + inner shadow) is drawn on top. The panel masks everything inside it either way.
             frameImg = UiBuilder.NewImage("Frame", root.transform);
             frameImg.color = FrameColor;
             frame = frameImg.rectTransform;
@@ -71,8 +73,8 @@ namespace SpellBrigadeMinimap
 
             panelImg = UiBuilder.NewImage("Panel", frame);
             panelImg.color = Background;
-            var panel = panelImg.rectTransform;
-            UiBuilder.Stretch(panel, BorderWidth);
+            panel = panelImg.rectTransform;
+            UiBuilder.Stretch(panel, SquareBorder);
             squareMask = panel.gameObject.AddComponent<RectMask2D>();
             roundMask = panel.gameObject.AddComponent<Mask>();
             roundMask.showMaskGraphic = true;
@@ -93,6 +95,10 @@ namespace SpellBrigadeMinimap
             you = UiBuilder.NewImage("You", panel);
             you.sprite = arrow;
             you.rectTransform.sizeDelta = new Vector2(18f, 18f);
+
+            bezel = UiBuilder.NewImage("Bezel", frame); // after the panel, so it draws on top of the map
+            bezel.sprite = SpriteFactory.ToSprite(ShapeSprites.Bezel(384));
+            UiBuilder.Stretch(bezel.rectTransform, 0f);
 
             ApplyLayout();
         }
@@ -115,7 +121,7 @@ namespace SpellBrigadeMinimap
         {
             ApplyLayout();
             group.alpha = cfg.Opacity.Value;
-            float half = (cfg.Size.Value - 2f * BorderWidth) * 0.5f;
+            float half = (cfg.Size.Value - 2f * panelInset) * 0.5f;
             var view = new MapView(s.Center, yaw, radius, half);
             float scale = view.Scale;
 
@@ -232,22 +238,25 @@ namespace SpellBrigadeMinimap
         void ApplyLayout()
         {
             MapShape shape = cfg.Shape.Value;
-            if (shape != lastShape)
-            {
-                lastShape = shape;
-                round = shape == MapShape.Round;
-                frameImg.sprite = round ? roundShape : null;
-                panelImg.sprite = round ? roundShape : null;
-                roundMask.enabled = round;
-                squareMask.enabled = !round;
-            }
-
-            float size = cfg.Size.Value, margin = cfg.Margin.Value;
+            float size = cfg.Size.Value, margin = cfg.Margin.Value, bottomOffset = cfg.BottomOffset.Value;
             ScreenCorner corner = cfg.Corner.Value;
-            if (size == lastSize && margin == lastMargin && corner == lastCorner) return;
+            if (shape == lastShape && size == lastSize && margin == lastMargin
+                && bottomOffset == lastBottomOffset && corner == lastCorner) return;
+            lastShape = shape;
             lastSize = size;
             lastMargin = margin;
+            lastBottomOffset = bottomOffset;
             lastCorner = corner;
+
+            round = shape == MapShape.Round;
+            frameImg.enabled = !round;
+            panelImg.sprite = round ? roundShape : null;
+            roundMask.enabled = round;
+            squareMask.enabled = !round;
+            bezel.enabled = round;
+            // Round: the map ends just under the bezel's inner edge (1 px overlap so no gap shows).
+            panelInset = round ? Mathf.Max(1f, size * ShapeSprites.BezelThickness - 1f) : SquareBorder;
+            UiBuilder.Stretch(panel, panelInset);
 
             bool right = corner == ScreenCorner.TopRight || corner == ScreenCorner.BottomRight;
             bool top = corner == ScreenCorner.TopLeft || corner == ScreenCorner.TopRight;
@@ -255,7 +264,7 @@ namespace SpellBrigadeMinimap
             frame.anchorMin = anchor;
             frame.anchorMax = anchor;
             frame.pivot = anchor;
-            frame.anchoredPosition = new Vector2(right ? -margin : margin, top ? -margin : margin);
+            frame.anchoredPosition = new Vector2(right ? -margin : margin, top ? -margin : margin + bottomOffset);
             frame.sizeDelta = new Vector2(size, size);
         }
 

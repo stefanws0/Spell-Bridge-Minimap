@@ -3,7 +3,6 @@ using System.Diagnostics;
 using SpellBrigadeMinimap.Core;
 using UnityEngine;
 using UnityEngine.AI;
-using NVec2 = System.Numerics.Vector2;
 
 namespace SpellBrigadeMinimap
 {
@@ -22,8 +21,12 @@ namespace SpellBrigadeMinimap
 
     /// <summary>
     /// Builds the level layout by asking the NavMesh "is this cell walkable?" one cell at a time, flood-filling
-    /// outward from the player within a small time budget each frame. The game build strips Unity's NavMesh
-    /// triangle export (CalculateTriangulation); SamplePosition is the NavMesh query it does ship.
+    /// outward within a small time budget each frame. The game build strips Unity's NavMesh triangle export
+    /// (CalculateTriangulation); SamplePosition is the NavMesh query it does ship.
+    ///
+    /// Pixelated style: the moment mapping finishes (usually while the player is still dropping in, so before
+    /// the landing splash), a top-down picture of the level is taken. Its colours are matched to the game
+    /// camera's view once the player has landed, and only then is the picture shown.
     /// </summary>
     internal sealed class NavMeshMapper
     {
@@ -31,15 +34,18 @@ namespace SpellBrigadeMinimap
         const float CellSize = 1f;           // world units per cell
         const float ProbeRange = 3f;         // how far from the cell center (mostly vertically) to look for NavMesh
         const float MaxCellOffset = 0.6f;    // a hit further than this sideways belongs to another cell
+        const float SeedSearchRange = 60f;   // finds the ground below a player who is still in the air
+        const float GroundedTolerance = 1.5f;
         const int NavMeshAllAreas = -1;
         const double FrameBudgetMs = 2.0;
         const int ProbesPerSlice = 64;
         const int Padding = 2;
+        const int ArtPadding = 12;           // cells of surroundings kept around the level in the picture
         const float PreviewSeconds = 1f;
         const float RetrySeconds = 2f;
         const int MaxRetries = 10;
-        const int ArtPadding = 12;           // cells of surroundings kept around the level in the picture
-        const float ArtDelaySeconds = 1f;    // let the run settle (spawn effects) before taking the picture
+        const int GameViewWidth = 480;
+        const float Trim = 0.05f;
 
         static readonly MapPalette Palette = new MapPalette(
             ground: new Rgba(78, 92, 110),
@@ -51,10 +57,12 @@ namespace SpellBrigadeMinimap
 
         WalkableFlood flood;
         CellClass[] classes;
-        float floodStarted, nextPreview, nextRetry, artDue;
+        PixelBuffer rawArt;
+        CropRect artCrop;
+        float floodStarted, nextPreview, nextRetry;
         int retries, probes;
         double busyMs;
-        bool failed, radarLogged, artFailed;
+        bool failed, radarLogged, artFailed, artShown;
 
         public BakedMap Map { get; private set; }
 
@@ -62,39 +70,67 @@ namespace SpellBrigadeMinimap
         {
             flood = null;
             classes = null;
-            artDue = 0f;
+            rawArt = null;
             retries = 0;
-            failed = radarLogged = artFailed = false;
+            failed = radarLogged = artFailed = artShown = false;
             Map?.Destroy();
             Map = null;
         }
 
-        /// <summary>Advances mapping within this frame's budget. Returns true when <see cref="Map"/> changed.</summary>
-        public bool Tick(float now, NVec2 center, float centerY)
+        /// <summary>
+        /// Starts or extends mapping from the NavMesh ground nearest to <paramref name="near"/> (the player,
+        /// even mid-air, or a level spawn point). Cheap to call every frame: one probe.
+        /// </summary>
+        public void SeedNear(float now, Vector3 near)
         {
-            if (failed) return false;
+            if (failed) return;
             try
             {
+                if (!NavMesh.SamplePosition(near, out NavMeshHit hit, SeedSearchRange, NavMeshAllAreas)) return;
+                Vector3 g = hit.position;
                 if (flood == null)
                 {
-                    flood = new WalkableFlood(GridSize, CellSize, center.X, center.Y);
+                    flood = new WalkableFlood(GridSize, CellSize, g.x, g.z);
                     floodStarted = now;
                     nextRetry = now + RetrySeconds;
                     probes = 0;
                     busyMs = 0;
                 }
+                if (flood.StateAt(g.x, g.z) == CellState.Unknown) flood.Seed(g.x, g.z, g.y);
+            }
+            catch (Exception e)
+            {
+                failed = true;
+                LogOnce.Error("reading the NavMesh (showing radar mode)", e);
+            }
+        }
 
-                // New ground (spawn, or a teleport into an unexplored area): explore from here.
-                if (flood.StateAt(center.X, center.Y) == CellState.Unknown) flood.Seed(center.X, center.Y, centerY);
+        /// <summary>True when the point stands on mapped ground (not dropping in, not mid-jump).</summary>
+        public bool IsOnGround(Vector3 p)
+            => flood != null && flood.TryGroundHeight(p.x, p.z, out float y) && Math.Abs(p.y - y) <= GroundedTolerance;
 
+        /// <summary>
+        /// Advances mapping within this frame's budget; when <paramref name="viewSettled"/> (the player has
+        /// landed and the game camera shows normal gameplay) shows the colour-matched level picture.
+        /// Returns true when <see cref="Map"/> changed.
+        /// </summary>
+        public bool Tick(float now, bool viewSettled)
+        {
+            if (failed || flood == null) return false;
+            try
+            {
                 if (!flood.HasWork)
                 {
-                    if (artDue > 0f && now >= artDue)
+                    if (flood.WalkableCount == 0)
                     {
-                        artDue = 0f;
-                        return PaintArt();
+                        RetryOrGiveUp(now);
+                        return false;
                     }
-                    if (flood.WalkableCount == 0) RetryOrGiveUp(now);
+                    if (rawArt != null && !artShown && viewSettled)
+                    {
+                        artShown = true;
+                        return ShowArt();
+                    }
                     return false;
                 }
 
@@ -108,7 +144,7 @@ namespace SpellBrigadeMinimap
                     classes = MapPainter.Classify(flood);
                     bool changed = Replace(MapPainter.Paint(flood, classes, Palette, Padding), FilterMode.Bilinear);
                     LogFinished(now);
-                    artDue = Mod.Settings.Style.Value == MapStyle.Pixelated && !artFailed ? now + ArtDelaySeconds : 0f;
+                    TakePicture();
                     return changed;
                 }
                 if (now >= nextPreview)
@@ -139,28 +175,70 @@ namespace SpellBrigadeMinimap
             }
             if (now < nextRetry) return;
             retries++;
-            flood = null; // next Tick starts a fresh grid around the player
+            flood = null; // the next SeedNear starts a fresh grid
         }
 
-        /// <summary>Swaps the flat map for a pixel-art picture of the level. Falls back to the flat map on failure.</summary>
-        bool PaintArt()
+        /// <summary>Takes the top-down picture now (kept hidden until its colours are matched).</summary>
+        void TakePicture()
         {
-            if (classes == null || !MapPainter.TryCrop(flood, ArtPadding, out var crop)) return false;
+            rawArt = null;
+            artShown = false;
+            if (artFailed || Mod.Settings.Style.Value != MapStyle.Pixelated) return;
+            if (!MapPainter.TryCrop(flood, ArtPadding, out artCrop)) return;
             try
             {
                 var sw = Stopwatch.StartNew();
-                var art = LevelSnapshot.Capture(
-                    flood.OriginX + crop.X * CellSize, flood.OriginZ + crop.Y * CellSize,
-                    crop.Width, crop.Height, CellSize, flood.MaxHeight);
-                var painted = MapPainter.PaintArt(flood, classes, art, Palette, crop, Mod.Settings.HighlightObstacles.Value);
-                bool changed = Replace(painted, FilterMode.Point);
-                Mod.Log.LogInfo($"Captured level picture: {crop.Width} x {crop.Height} pixels in {sw.ElapsedMilliseconds} ms.");
-                return changed;
+                rawArt = LevelSnapshot.CaptureLevel(
+                    flood.OriginX + artCrop.X * CellSize, flood.OriginZ + artCrop.Y * CellSize,
+                    artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight);
+                Mod.Log.LogInfo($"Captured level picture: {artCrop.Width} x {artCrop.Height} pixels in {sw.ElapsedMilliseconds} ms.");
             }
             catch (Exception e)
             {
                 artFailed = true;
                 LogOnce.Error("taking the level picture (keeping the flat map)", e);
+            }
+        }
+
+        /// <summary>Matches the picture's colours to the game camera's view and swaps it in for the flat map.</summary>
+        bool ShowArt()
+        {
+            PixelBuffer art = rawArt;
+            try
+            {
+                var view = LevelSnapshot.CaptureGameView(GameViewWidth);
+                if (view != null)
+                {
+                    // A ring around the screen center: skips the player and their landing splash in the middle,
+                    // and the vignette and HUD at the edges.
+                    float cx = view.Width * 0.5f, cy = view.Height * 0.5f;
+                    float rMin = view.Height * 0.2f, rMax = view.Height * 0.45f;
+                    var game = ColorMatch.Measure(view, (x, y) =>
+                    {
+                        float dx = x + 0.5f - cx, dy = y + 0.5f - cy, d2 = dx * dx + dy * dy;
+                        return d2 >= rMin * rMin && d2 <= rMax * rMax;
+                    }, Trim);
+                    int n = flood.Size;
+                    var picture = ColorMatch.Measure(rawArt,
+                        (x, y) => classes[(artCrop.Y + y) * n + artCrop.X + x] != CellClass.Outside, Trim);
+                    if (game.Count > 100 && picture.Count > 100)
+                    {
+                        art = ColorMatch.Transfer(rawArt, picture, game);
+                        Mod.Log.LogInfo($"Matched level picture colours. Picture: {picture}. Game view: {game}.");
+                    }
+                }
+            }
+            catch (Exception e) { LogOnce.Error("matching the level picture's colours (showing it unmatched)", e); }
+
+            try
+            {
+                var painted = MapPainter.PaintArt(flood, classes, art, Palette, artCrop, Mod.Settings.HighlightObstacles.Value);
+                return Replace(painted, FilterMode.Point);
+            }
+            catch (Exception e)
+            {
+                artFailed = true;
+                LogOnce.Error("showing the level picture (keeping the flat map)", e);
                 return false;
             }
         }
