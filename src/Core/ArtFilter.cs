@@ -155,6 +155,41 @@ namespace SpellBrigadeMinimap.Core
             return dst;
         }
 
+        /// <summary>
+        /// Coverage from a render of one object alone, limited to where the object actually shows in the full
+        /// picture: a pixel stays covered only if the picture with the object differs from the picture without it
+        /// by at least <paramref name="minDiff"/> in some channel, or if at least two of its four neighbours do
+        /// (fills single-pixel gaps where the water matches the ground). Drops parts hidden under the ground.
+        /// </summary>
+        public static float[] VisibleOnly(float[] cover, PixelBuffer with, PixelBuffer without, float minCoverage, int minDiff)
+        {
+            int w = with.Width, h = with.Height;
+            if (cover.Length != w * h || without.Width != w || without.Height != h)
+                throw new ArgumentException("coverage and pictures must be the same size");
+            var shows = new bool[w * h];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    int i = y * w + x;
+                    if (cover[i] < minCoverage) continue;
+                    Rgba a = with.GetPixel(x, y), b = without.GetPixel(x, y);
+                    int diff = Math.Max(Math.Abs(a.R - b.R), Math.Max(Math.Abs(a.G - b.G), Math.Abs(a.B - b.B)));
+                    shows[i] = diff >= minDiff;
+                }
+            bool Shows(int x, int y) => x >= 0 && y >= 0 && x < w && y < h && shows[y * w + x];
+
+            var result = new float[w * h];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    int i = y * w + x;
+                    if (cover[i] < minCoverage) continue;
+                    int around = (Shows(x - 1, y) ? 1 : 0) + (Shows(x + 1, y) ? 1 : 0) + (Shows(x, y - 1) ? 1 : 0) + (Shows(x, y + 1) ? 1 : 0);
+                    if (shows[i] || around >= 2) result[i] = cover[i];
+                }
+            return result;
+        }
+
         static float Luma(Rgba c) => c.R * 0.299f + c.G * 0.587f + c.B * 0.114f;
 
         static byte Byte(float v) => (byte)Math.Max(0, Math.Min(255, (int)Math.Round(v)));

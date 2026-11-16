@@ -74,23 +74,31 @@ namespace SpellBrigadeMinimap.Core
             return new Rgba((byte)(RimLight.R * k), (byte)(RimLight.G * k), (byte)(RimLight.B * k), (byte)(255 * alpha));
         });
 
-        static readonly Rgba Amber = new Rgba(255, 200, 48, 255);
+        static readonly Rgba BurstYellow = new Rgba(255, 206, 56, 255);
+        static readonly Rgba BurstCenter = new Rgba(222, 150, 24, 255);
 
         /// <summary>
-        /// A hazard sign: an amber triangle with a dark border and a dark exclamation mark. Drawn in its own colours
-        /// (not tinted), like the game's warning signs.
+        /// An eruption (geysers): an 8-ray yellow star with a deeper yellow center and a dark border. Drawn in its
+        /// own colours (not tinted).
         /// </summary>
-        public static PixelBuffer Warning(int size) => Render(size, (u, v) =>
+        public static PixelBuffer Burst(int size) => Render(size, (u, v) =>
         {
-            if (!InWarning(u, v)) return Rgba.Clear;
-            const float t = 0.07f;
-            bool inner = InWarning(u + t, v) && InWarning(u - t, v) && InWarning(u, v + t) && InWarning(u, v - t);
+            if (!InBurst(u, v)) return Rgba.Clear;
+            const float t = 0.06f, d = t * 0.7f;
+            bool inner = InBurst(u + t, v) && InBurst(u - t, v) && InBurst(u, v + t) && InBurst(u, v - t)
+                && InBurst(u + d, v + d) && InBurst(u - d, v - d) && InBurst(u + d, v - d) && InBurst(u - d, v + d);
             if (!inner) return Border;
-            bool bar = Math.Abs(u - 0.5f) <= 0.05f && v >= 0.38f && v <= 0.72f;
-            float dx = u - 0.5f, dy = v - 0.25f;
-            bool dot = dx * dx + dy * dy <= 0.06f * 0.06f;
-            return bar || dot ? Border : Amber;
+            return Distance(u, v) < 0.13f ? BurstCenter : BurstYellow;
         });
+
+        /// <summary>Rays point at 22.5° + k x 45°; the outline runs straight from 0.47 at a ray to 0.25 between rays.</summary>
+        static bool InBurst(float u, float v)
+        {
+            float dx = u - 0.5f, dy = v - 0.5f;
+            double sector = Math.PI / 4, a = Math.Atan2(dy, dx) + Math.PI / 8;
+            double f = Math.Abs(((a % sector) + sector) % sector / sector - 0.5) * 2; // 1 at a ray, 0 between
+            return Distance(u, v) < 0.25f + 0.22f * (float)f;
+        }
 
         /// <summary>
         /// A teleport portal: an upright oval ring (white, so UI tinting colours it) with a dark border and a
@@ -107,8 +115,27 @@ namespace SpellBrigadeMinimap.Core
             return new Rgba(255, 255, 255, 90);
         });
 
-        // Apex (0.5, 0.94), base corners (0.05, 0.08) and (0.95, 0.08).
-        static bool InWarning(float u, float v) => InTriangle(u, v, 0.5f, 0.94f, 0.95f, 0.08f, 0.05f, 0.08f);
+        static readonly Rgba WindGrey = new Rgba(200, 204, 212, 255);
+
+        /// <summary>A tornado: a light grey funnel, wide at the top, with a dark border and dark swirl lines.</summary>
+        public static PixelBuffer Tornado(int size) => Render(size, (u, v) =>
+        {
+            if (!InFunnel(u, v)) return Rgba.Clear;
+            const float t = 0.045f, d = t * 0.7f;
+            bool inner = InFunnel(u + t, v) && InFunnel(u - t, v) && InFunnel(u, v + t) && InFunnel(u, v - t)
+                && InFunnel(u + d, v + d) && InFunnel(u - d, v - d) && InFunnel(u + d, v - d) && InFunnel(u - d, v + d);
+            if (!inner) return Border;
+            foreach (float y in new[] { 0.36f, 0.56f, 0.76f })
+            {
+                float line = y + (u - 0.5f) * 0.12f;
+                if (Math.Abs(v - line) < 0.022f && Math.Abs(u - FunnelCenter(v)) < FunnelHalf(v) * 0.8f) return Border;
+            }
+            return WindGrey;
+        });
+
+        static float FunnelCenter(float v) => 0.5f + 0.06f * (float)Math.Sin(v * 6.5f);
+        static float FunnelHalf(float v) => 0.05f + 0.37f * (float)Math.Pow(Math.Max(0f, (v - 0.07f) / 0.86f), 1.4f);
+        static bool InFunnel(float u, float v) => v > 0.07f && v < 0.93f && Math.Abs(u - FunnelCenter(v)) <= FunnelHalf(v);
 
         static PixelBuffer Render(int size, Func<float, float, Rgba> shade)
         {

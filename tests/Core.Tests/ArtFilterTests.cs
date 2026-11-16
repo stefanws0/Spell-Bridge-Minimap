@@ -115,6 +115,45 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(new Rgba(60, 60, 90), got.GetPixel(0, 0), "outside unchanged");
         }
 
+        /// <summary>
+        /// A 9x9 map: a visible river along row 4, and a hidden stretch of the same line (underground) down
+        /// column 4 that only the river-alone render shows.
+        /// </summary>
+        public static void VisibleOnlyDropsRiverPartsThePictureDoesNotShow()
+        {
+            const int n = 9;
+            var cover = new float[n * n];
+            var with = Fill(n, new Rgba(70, 70, 120));
+            var without = Fill(n, new Rgba(70, 70, 120));
+            for (int i = 0; i < n; i++)
+            {
+                cover[4 * n + i] = 1f;              // the river
+                with.SetPixel(i, 4, new Rgba(120, 115, 190));
+                cover[i * n + 4] = 1f;              // the hidden stretch
+            }
+            var got = ArtFilter.VisibleOnly(cover, with, without, 0.3f, 4);
+            Check.True(got[4 * n + 2] >= 0.3f, "visible river kept");
+            Check.True(got[4 * n + 4] >= 0.3f, "crossing kept");
+            Check.True(got[2 * n + 4] < 0.3f, "hidden stretch dropped");
+            Check.True(got[5 * n + 4] < 0.3f, "hidden stretch right next to the river dropped");
+        }
+
+        public static void VisibleOnlyFillsSinglePixelGapsInTheRiver()
+        {
+            const int n = 7;
+            var cover = new float[n * n];
+            var with = Fill(n, new Rgba(70, 70, 120));
+            var without = Fill(n, new Rgba(70, 70, 120));
+            for (int y = 2; y <= 4; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    cover[y * n + x] = 1f;
+                    if (!(x == 3 && y == 3)) with.SetPixel(x, y, new Rgba(120, 115, 190));
+                }
+            var got = ArtFilter.VisibleOnly(cover, with, without, 0.3f, 4);
+            Check.True(got[3 * n + 3] >= 0.3f, "water that happens to match the ground is still river");
+        }
+
         public static void KeepsAlpha()
         {
             var got = ArtFilter.CalmGrass(Fill(5, new Rgba(90, 130, 60, 77)), 1, 0.8f, 0.7f).GetPixel(2, 2);

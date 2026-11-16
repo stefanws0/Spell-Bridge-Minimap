@@ -63,6 +63,9 @@ namespace SpellBrigadeMinimap
         public readonly List<EnemyDot> Enemies = new List<EnemyDot>();
         public readonly List<Poi> Pois = new List<Poi>();
         public readonly List<FeatureDot> Features = new List<FeatureDot>();
+        /// <summary>Where each tornado is right now (updated every frame; the list of tornadoes once a second).</summary>
+        public readonly List<NVec2> Tornadoes = new List<NVec2>();
+        readonly List<Transform> tornadoTransforms = new List<Transform>();
 
         readonly HashSet<int> eliteTypes = new HashSet<int>();
         float nextEnemyScan, nextPoiScan, nextFeatureScan;
@@ -75,6 +78,8 @@ namespace SpellBrigadeMinimap
             Enemies.Clear();
             Pois.Clear();
             Features.Clear();
+            Tornadoes.Clear();
+            tornadoTransforms.Clear();
             featuresLogged = false;
             nextEnemyScan = nextPoiScan = nextFeatureScan = 0f;
             HasCenter = false;
@@ -89,11 +94,19 @@ namespace SpellBrigadeMinimap
         {
             ScanPlayers();
 
-            if (!wantFeatures) Features.Clear();
-            else if (now >= nextFeatureScan)
+            if (!wantFeatures)
             {
-                nextFeatureScan = now + FeatureInterval;
-                ScanFeatures();
+                Features.Clear();
+                Tornadoes.Clear();
+            }
+            else
+            {
+                if (now >= nextFeatureScan)
+                {
+                    nextFeatureScan = now + FeatureInterval;
+                    ScanFeatures();
+                }
+                TrackTornadoes();
             }
 
             if (!wantEnemies) Enemies.Clear();
@@ -310,10 +323,35 @@ namespace SpellBrigadeMinimap
             }
             catch (Exception e) { LogOnce.Error("finding teleport portals", e); }
 
-            if (!featuresLogged && (traps > 0 || portals > 0))
+            tornadoTransforms.Clear();
+            try
+            {
+                var all = UnityEngine.Object.FindObjectsOfType<Tornado>();
+                for (int i = 0; i < all.Length; i++)
+                    if (all[i] != null && all[i].isActiveAndEnabled) tornadoTransforms.Add(all[i].transform);
+            }
+            catch (Exception e) { LogOnce.Error("finding tornadoes", e); }
+
+            if (!featuresLogged && (traps > 0 || portals > 0 || tornadoTransforms.Count > 0))
             {
                 featuresLogged = true;
-                Mod.Log.LogInfo($"Map features: {traps} geysers, {portals} portals ({open} open).");
+                Mod.Log.LogInfo($"Map features: {traps} geysers, {portals} portals ({open} open), {tornadoTransforms.Count} tornadoes.");
+            }
+        }
+
+        void TrackTornadoes()
+        {
+            Tornadoes.Clear();
+            for (int i = 0; i < tornadoTransforms.Count; i++)
+            {
+                try
+                {
+                    var t = tornadoTransforms[i];
+                    if (t == null) continue;
+                    Vector3 p = t.position;
+                    Tornadoes.Add(new NVec2(p.x, p.z));
+                }
+                catch { } // destroyed between scans
             }
         }
 

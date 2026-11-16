@@ -56,7 +56,7 @@ namespace SpellBrigadeMinimap
             ShowPickups = f.Bind("Layers", "ShowPickups", true, "Artifact, health and magnet pickups the game points at.");
             ShowTeammates = f.Bind("Layers", "ShowTeammates", true, "Other players.");
             ShowMoreEvents = f.Bind("Layers", "ShowMoreEvents", true, "MoreEvents targets and zones (only when MoreEvents is installed).");
-            ShowMapFeatures = f.Bind("Layers", "ShowMapFeatures", true, "Warning signs on traps (the ice map's geysers) and teleport portals (bright when open).");
+            ShowMapFeatures = f.Bind("Layers", "ShowMapFeatures", true, "Geysers on the ice map (yellow bursts), tornadoes on the fire map (following them as they move) and teleport portals (bright when open).");
             HideUndiscoveredObjectives = f.Bind("Layers", "HideUndiscoveredObjectives", true, "Only show an objective once someone in the party has had it on screen. Discoveries are shared with other players who run this mod, through the host.");
 
             SaveDebugImages = f.Bind("Debug", "SaveDebugImages", false, "Save the level picture, the game-view colour sample and the finished minimap as PNGs in BepInEx/minimap-debug each run.");

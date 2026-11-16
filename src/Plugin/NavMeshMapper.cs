@@ -68,6 +68,7 @@ namespace SpellBrigadeMinimap
         const float TintCoverage = 0.3f;     // a cell at least this covered by tinted scenery takes the tint
         const float TintStrength = 0.85f;
         const float RiverStrength = 0.55f;
+        const int RiverMinDiff = 4;          // the picture must change this much where the river shows
         static readonly Rgba RiverWater = new Rgba(132, 124, 200);   // the astral river's lavender, a little bluer
         static readonly Rgba RiverBank = new Rgba(214, 204, 240);    // the pale line along its banks
 
@@ -388,6 +389,15 @@ namespace SpellBrigadeMinimap
                 {
                     var cover = LevelSnapshot.OnLayer(g.renderers.Where(r => r != null).Select(r => r.gameObject), layer,
                         () => LevelSnapshot.CaptureCoverage(ox, oz, artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight, layer));
+                    if (g.edge.HasValue)
+                    {
+                        // The river's line also runs underground in places; keep only where it shows in the picture.
+                        var hide = new List<Renderer>(g.renderers);
+                        if (scenery.Effects != null) hide.AddRange(scenery.Effects);
+                        var without = LevelSnapshot.CaptureLevel(ox, oz, artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight, hide);
+                        DebugImages.Save("1c-without-river", without);
+                        cover = ArtFilter.VisibleOnly(cover, rawArt, without, TintCoverage, RiverMinDiff);
+                    }
                     int cells = 0;
                     for (int i = 0; i < cover.Length; i++)
                         if (cover[i] >= TintCoverage)

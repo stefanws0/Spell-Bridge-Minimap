@@ -40,16 +40,15 @@ namespace SpellBrigadeMinimap.Tests
             Check.True(shadow.A > 0 && shadow.A < 255 && shadow.R < 40, $"soft dark inner shadow: {shadow}");
         }
 
-        public static void WarningIsAnAmberTriangleWithAnExclamationMark()
+        public static void BurstIsAYellowStarWithADeeperCenter()
         {
-            var img = ShapeSprites.Warning(64);
-            Check.Equal((byte)0, img.GetPixel(2, 62).A, "clear top corner");
-            Rgba body = img.GetPixel(20, 14);
-            Check.True(body.A == 255 && body.R > 230 && body.G > 160 && body.B < 80, $"amber body: {body}");
-            Rgba mark = img.GetPixel(32, 36);
-            Check.True(mark.A == 255 && mark.R < 40, $"dark exclamation mark: {mark}");
-            Rgba dot = img.GetPixel(32, 15);
-            Check.True(dot.R < 40, $"dark dot under it: {dot}");
+            var img = ShapeSprites.Burst(64);
+            Check.Equal((byte)0, img.GetPixel(2, 2).A, "clear corner");
+            Rgba center = img.GetPixel(32, 32);
+            Check.True(center.A == 255 && center.R > 200 && center.G > 120 && center.G < 170 && center.B < 60, $"deep yellow center: {center}");
+            Rgba ray = img.GetPixel(39, 49);
+            Check.True(ray.A == 255 && ray.R > 240 && ray.G > 190, $"yellow ray: {ray}");
+            Check.Equal((byte)0, img.GetPixel(32, 58).A, "clear between two rays");
         }
 
         public static void PortalIsAnOvalRingWithAFaintCenter()
@@ -60,6 +59,15 @@ namespace SpellBrigadeMinimap.Tests
             Check.True(center.A > 0 && center.A < 160, $"see-through center: {center}");
             Rgba ring = img.GetPixel(32, 57);
             Check.True(ring.A == 255 && ring.R > 200, $"white ring at the top: {ring}");
+        }
+
+        public static void TornadoIsAFunnelWideAtTheTop()
+        {
+            var img = ShapeSprites.Tornado(64);
+            Check.Equal((byte)0, img.GetPixel(2, 2).A, "clear bottom corner");
+            Rgba top = img.GetPixel(14, 54), tip = img.GetPixel(14, 10);
+            Check.True(top.A == 255 && top.R > 150, $"wide light funnel at the top: {top}");
+            Check.Equal((byte)0, tip.A, "narrow at the bottom");
         }
 
         public static void DiamondHasClearCorners()
