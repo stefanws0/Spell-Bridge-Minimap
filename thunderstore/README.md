@@ -54,6 +54,7 @@ Install it if you want to see a minimap; nobody else needs it. The only thing it
 
 ## Changelog
 
+- **1.1.0**: shows Treasure Maps hunts (search circle and map pieces) when that mod is installed. New setting: `ShowTreasure`.
 - **1.0.2**: objective pieces with guide lines and counters, zones at real size, hunt-target crosshair.
 - **1.0.1**: moves out of the way of the game's HUD in its corner; dead teammates as ghosts in their colour; your arrow turns while you're a ghost; order-objective mushrooms coloured by state; the fire map's arena edge.
 - **1.0.0**: first release.

@@ -19,6 +19,8 @@ namespace SpellBrigadeMinimap
         readonly WorldScanner scanner = new WorldScanner();
         readonly NavMeshMapper mapper = new NavMeshMapper();
         readonly MoreEventsBridge bridge = new MoreEventsBridge();
+        readonly TreasureBridge treasureBridge = new TreasureBridge();
+        readonly TreasureView treasure = new TreasureView();
         readonly ObjectiveDiscovery discovery = new ObjectiveDiscovery();
         readonly List<EventMarker> markers = new List<EventMarker>();
         IntPtr runPtr;
@@ -88,9 +90,15 @@ namespace SpellBrigadeMinimap
 
             if (cfg.ShowMoreEvents.Value) bridge.Collect(markers);
             else markers.Clear();
+            if (cfg.ShowTreasure.Value) treasureBridge.Read(treasure);
+            else
+            {
+                treasure.Active = false;
+                treasure.Pieces.Clear();
+            }
 
             view.SetVisible(true);
-            view.Render(scanner, markers, discovery, cfg.RotateWithCamera.Value ? CameraYaw() : 0f, radius);
+            view.Render(scanner, markers, treasure, discovery, cfg.RotateWithCamera.Value ? CameraYaw() : 0f, radius);
         }
 
         bool TryFindSpawnPoint(float now, out Vector3 point)

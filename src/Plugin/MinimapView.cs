@@ -58,6 +58,7 @@ namespace SpellBrigadeMinimap
         static readonly Rgba CounterText = new Rgba(253, 248, 206);
         static readonly Rgba CounterPill = new Rgba(24, 24, 26, 235);
         const float GhostSize = 16f, PillarSize = 18f;
+        const float TreasurePieceSize = 16f, TreasureFillAlpha = 0.13f;
         // The order objective's mushrooms, as the game colours them: waiting, hit in the right order, wrong.
         static readonly Color PillarIdle = new Color(0.36f, 0.62f, 1f, 1f);
         static readonly Color PillarCorrect = new Color(0.36f, 0.95f, 0.45f, 1f);
@@ -164,7 +165,7 @@ namespace SpellBrigadeMinimap
             layout.enabled = baked != null;
         }
 
-        public void Render(WorldScanner s, List<EventMarker> markers, ObjectiveDiscovery discovery, float yaw, float radius)
+        public void Render(WorldScanner s, List<EventMarker> markers, TreasureView treasure, ObjectiveDiscovery discovery, float yaw, float radius)
         {
             lift = cfg.AvoidGameHud.Value
                 ? hud.Tick(Time.unscaledTime, Time.unscaledDeltaTime, HomeScreenBox(out bool bottom), bottom, canvas,
@@ -205,6 +206,16 @@ namespace SpellBrigadeMinimap
                     if (g.State != GeyserState.Erupting)
                         DrawFeature(zones, g.State == GeyserState.Ready ? burst : burstSpent, Color.white, g.Pos, view,
                             g.State == GeyserState.Ready ? GeyserSize : SpentGeyserSize);
+            if (treasure.Active && treasure.Radius > 0f)
+            {
+                // The search circle at its real size: a faint orange fill and the game's ring in artifact orange.
+                Vector2 at = ToUnity(MapMath.WorldToPanel(view, treasure.Center));
+                float d = treasure.Radius * 2f * scale;
+                var fillColor = treasure.Orange;
+                fillColor.a = TreasureFillAlpha;
+                zones.Place(roundShape, fillColor, at, d, 0f);
+                zones.Place(treasure.Circle != null ? treasure.Circle : ring, treasure.Orange, at, d, 0f);
+            }
             zones.End();
 
             DrawEnemies(s, view);
@@ -225,6 +236,9 @@ namespace SpellBrigadeMinimap
                             new Vector2(Mathf.Sin(time * 53f) * 1.3f, Mathf.Cos(time * 61f) * 1.1f), Mathf.Sin(time * 41f) * 7f);
             }
             if (cfg.ShowObjectives.Value) DrawPieces(s.Objectives, view);
+            foreach (var p in treasure.Pieces)
+                DrawFeature(icons, treasure.Icon != null ? treasure.Icon : disc, treasure.Icon != null ? Color.white : treasure.Orange,
+                    p, view, TreasurePieceSize);
 
             // Once anyone has seen one mushroom of an order objective, show all of them.
             knownGroups.Clear();

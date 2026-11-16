@@ -371,6 +371,7 @@ namespace SpellBrigadeMinimap
                     Transform target = kv.Key;
                     ScreenPointer sp = kv.Value;
                     if (target == null || sp == null) continue;
+                    if (target.name == "TreasureMapsPointerTarget") continue; // Treasure Maps' pointer; drawn as its circle
                     if (!TryKind(sp.pointerType, out PoiKind kind)) continue;
                     if (kind == PoiKind.Objective && Objectives.IsPiece(target)) continue; // drawn as its piece icon
 
