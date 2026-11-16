@@ -28,14 +28,35 @@ namespace SpellBrigadeMinimap
         bool resolved, available;
         FieldInfo active, center, radius, pieces, icon, circle, orange;
 
+        /// <summary>The name of the treasure pointer's target, which the minimap leaves out (it draws the circle instead).</summary>
+        public string PointerTargetName = "TreasureMapsPointerTarget";
+
+        /// <summary>True when Treasure Maps is loaded and its API matches.</summary>
+        public bool Available
+        {
+            get
+            {
+                if (!resolved)
+                {
+                    try { Resolve(); }
+                    catch (Exception e)
+                    {
+                        available = false;
+                        LogOnce.Error("finding Treasure Maps (treasure layer turned off)", e);
+                    }
+                }
+                return available;
+            }
+        }
+
         public void Read(TreasureView into)
         {
             into.Active = false;
             into.Pieces.Clear();
-            if (!resolved) Resolve();
-            if (!available) return;
             try
             {
+                if (!resolved) Resolve();
+                if (!available) return;
                 into.Active = (bool)active.GetValue(null);
                 var c = (Vector3)center.GetValue(null);
                 into.Center = new NVec2(c.x, c.z);
@@ -45,11 +66,14 @@ namespace SpellBrigadeMinimap
                         if (o is Vector3 p) into.Pieces.Add(new NVec2(p.x, p.z));
                 into.Icon = icon.GetValue(null) as Sprite;
                 into.Circle = circle.GetValue(null) as Sprite;
-                into.Orange = (Color)orange.GetValue(null);
+                var tint = (Color)orange.GetValue(null);
+                if (tint.a > 0f) into.Orange = tint;
             }
             catch (Exception e)
             {
                 available = false;
+                into.Active = false;
+                into.Pieces.Clear();
                 LogOnce.Error("reading the treasure hunt (treasure layer turned off)", e);
             }
         }
@@ -78,6 +102,9 @@ namespace SpellBrigadeMinimap
             icon = api.GetField("PieceIcon", flags);
             circle = api.GetField("CircleSprite", flags);
             orange = api.GetField("Orange", flags);
+            // Optional: older Treasure Maps builds don't have it, and the default name stays.
+            if (api.GetField("PointerTargetName", flags)?.GetValue(null) is string pointerName && pointerName.Length > 0)
+                PointerTargetName = pointerName;
             available = active != null && center != null && radius != null && pieces != null && icon != null
                         && circle != null && orange != null;
             if (available) Mod.Log.LogInfo("Treasure Maps found; showing treasure hunts.");

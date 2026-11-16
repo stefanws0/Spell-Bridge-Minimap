@@ -23,6 +23,7 @@ A round minimap in the corner of the screen during runs, framed like the game's 
 - **Objective pieces**: the collect objective's mushrooms (following them as they run), the objects to push and the animals to herd (with a faint dotted line to their zone, faded once they're in), and the stone enemies to break. The push zone and the herding pen are drawn at their real size, and a counter at the top shows how many are done ("3/8").
 - **Hunt targets** get a red crosshair that follows them, pinned to the edge when they're off the map.
 - **MoreEvents** targets and zones, if that mod is installed.
+- **Treasure Maps hunts** (when that mod is installed): the search circle, map pieces on the ground, and an edge marker when the circle is off the map.
 
 The map turns with the camera, so up on the minimap is up on screen. It moves up out of the way when the game's HUD (collected artifacts, the revive counter) or another mod's panel sits in its corner, and back down when that's gone.
 
@@ -40,7 +41,7 @@ The map turns with the camera, so up on the minimap is up on screen. It moves up
 - `[Layout]` `Corner` (BottomRight), `Shape` (Round / Square), `Size` (220), `Margin` (16), `BottomOffset` (30, room for the text bar), `AvoidGameHud` (true), `Opacity` (0.85)
 - `[Look]` `Style` (Pixelated / Flat), `HighlightObstacles`, `TrimOutsideArena`, `LiftDarkGround`, `ObstacleKeywords`, `TintKeywords`, `PaintFromGameView` (off; experimental)
 - `[View]` `Radius` (40), `MinRadius` (15), `MaxRadius` (120), `RotateWithCamera` (true)
-- `[Layers]` `ShowEnemies`, `BigEnemyHealth` (3: how much tougher than the swarm an enemy must be to show orange), `ShowObjectives`, `ShowPickups`, `ShowTeammates`, `ShowMoreEvents`, `ShowMapFeatures` (geysers, tornadoes, portals), `HideUndiscoveredObjectives` (true)
+- `[Layers]` `ShowEnemies`, `BigEnemyHealth` (3: how much tougher than the swarm an enemy must be to show orange), `ShowObjectives`, `ShowPickups`, `ShowTeammates`, `ShowMoreEvents`, `ShowMapFeatures` (geysers, tornadoes, portals), `ShowTreasure` (Treasure Maps hunts), `HideUndiscoveredObjectives` (true)
 - `[Debug]` `SaveDebugImages` (false): saves the pictures behind the minimap to `BepInEx/minimap-debug`
 
 ## Multiplayer

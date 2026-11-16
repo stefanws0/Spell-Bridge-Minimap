@@ -201,21 +201,24 @@ namespace SpellBrigadeMinimap
                     zones.Place(roundShape, ZoneFill, at, z.Radius * 2f * scale, 0f);
                     zones.Place(ring, ZoneColor, at, z.Radius * 2f * scale, 0f);
                 }
+            if (treasure.Active && treasure.Radius > 0f)
+            {
+                // The search circle at its real size: a faint orange fill (inside the ring's band) and the game's ring
+                // in artifact orange, a little see-through so the layout shows through the thick band.
+                Vector2 at = ToUnity(MapMath.WorldToPanel(view, treasure.Center));
+                float d = treasure.Radius * 2f * scale;
+                var fillColor = treasure.Orange;
+                fillColor.a = TreasureFillAlpha;
+                var ringColor = treasure.Orange;
+                ringColor.a = 0.9f;
+                zones.Place(roundShape, fillColor, at, d * 0.9f, 0f);
+                zones.Place(treasure.Circle != null ? treasure.Circle : ring, ringColor, at, d, 0f);
+            }
             if (cfg.ShowMapFeatures.Value)
                 foreach (var g in s.Geysers)
                     if (g.State != GeyserState.Erupting)
                         DrawFeature(zones, g.State == GeyserState.Ready ? burst : burstSpent, Color.white, g.Pos, view,
                             g.State == GeyserState.Ready ? GeyserSize : SpentGeyserSize);
-            if (treasure.Active && treasure.Radius > 0f)
-            {
-                // The search circle at its real size: a faint orange fill and the game's ring in artifact orange.
-                Vector2 at = ToUnity(MapMath.WorldToPanel(view, treasure.Center));
-                float d = treasure.Radius * 2f * scale;
-                var fillColor = treasure.Orange;
-                fillColor.a = TreasureFillAlpha;
-                zones.Place(roundShape, fillColor, at, d, 0f);
-                zones.Place(treasure.Circle != null ? treasure.Circle : ring, treasure.Orange, at, d, 0f);
-            }
             zones.End();
 
             DrawEnemies(s, view);
@@ -257,6 +260,16 @@ namespace SpellBrigadeMinimap
                     Vector3 w = t.position;
                     DrawPoint(crosshair, Color.white, MapMath.WorldToPanel(view, new NVec2(w.x, w.z)), CrosshairSize, half, clamp: true);
                 }
+            if (treasure.Active && treasure.Radius > 0f)
+            {
+                // The circle is off the map entirely: pin the treasure icon to the edge, pointing at it.
+                NVec2 tp = MapMath.WorldToPanel(view, treasure.Center);
+                float tr = treasure.Radius * scale;
+                bool apart = round ? tp.Length() - tr > half : Mathf.Abs(tp.X) - tr > half || Mathf.Abs(tp.Y) - tr > half;
+                if (apart)
+                    DrawPoint(treasure.Icon != null ? treasure.Icon : disc, treasure.Icon != null ? Color.white : treasure.Orange,
+                        tp, TreasurePieceSize, half, clamp: true);
+            }
             if (cfg.ShowMoreEvents.Value)
                 foreach (var m in markers)
                     if (!m.Zone) DrawPoint(diamond, m.Color, MapMath.WorldToPanel(view, m.Pos), 16f, half, clamp: true);
