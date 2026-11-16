@@ -8,6 +8,7 @@ namespace SpellBrigadeMinimap.Tests
         // A square of ground (|x|, |z| < 18) with a 2-cell-thick wall ring at 10 <= max(|x|, |z|) < 12,
         // broken by a gap on the +X side where |z| < gapHalfWidth. The flood leaks through the gap into
         // the band outside the wall, the way the game's NavMesh reaches enemy spawn areas.
+        // Inside the arena sits a small walled room around (4, 4) with a 2-cell door on its +Z side.
         static GroundProbe Walled(float gapHalfWidth) => (float x, float z, float yHint, out float y) =>
         {
             y = 0f;
@@ -15,13 +16,16 @@ namespace SpellBrigadeMinimap.Tests
             if (m >= 18f) return false;
             bool wall = m >= 10f && m < 12f;
             bool gap = x > 0f && Math.Abs(z) < gapHalfWidth;
-            return !wall || gap;
+            float rm = Math.Max(Math.Abs(x - 4f), Math.Abs(z - 4f));
+            bool roomWall = rm >= 2f && rm < 3f;
+            bool door = z > 4f && Math.Abs(x - 4f) < 1f;
+            return !(wall && !gap) && !(roomWall && !door);
         };
 
-        static WalkableFlood Run(GroundProbe probe)
+        static WalkableFlood Run(GroundProbe probe, float seedX = 0.2f, float seedZ = 0.2f)
         {
             var f = new WalkableFlood(48, 1f, 0f, 0f);
-            f.Seed(0.2f, 0.2f, 0f);
+            f.Seed(seedX, seedZ, 0f);
             while (f.HasWork) f.Step(5000, probe);
             return f;
         }
@@ -34,7 +38,7 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(f.IndexOf(0.2f, 0.2f), f.SeedIndex, "first seed cell");
         }
 
-        public static void ClosesASmallGapAndMarksTheBandOutsideTheWall()
+        public static void MarksTheBandBeyondTheWall()
         {
             var f = Run(Walled(1f));
             Check.Equal(CellState.Walkable, f.StateAt(15.2f, 0.2f), "the flood did leak outside the wall");
@@ -45,6 +49,15 @@ namespace SpellBrigadeMinimap.Tests
             Check.True(!At(f, band, 0.2f, 0.2f), "arena center is kept");
             Check.True(!At(f, band, 8.2f, 8.2f), "arena near the wall is kept");
             Check.True(kept > 0.25f && kept < 0.95f, $"kept fraction {kept}");
+        }
+
+        public static void KeepsPocketsInsideTheArena()
+        {
+            var f = Run(Walled(1f));
+            var band = ArenaFinder.FindOuterBand(f, 2, out _);
+            Check.True(band != null, "band found");
+            Check.Equal(CellState.Walkable, f.StateAt(4.2f, 4.2f), "the room is ground");
+            Check.True(!At(f, band, 4.2f, 4.2f), "a room with a narrow door stays part of the arena");
         }
 
         public static void LeavesOpenMapsAlone()
@@ -59,6 +72,12 @@ namespace SpellBrigadeMinimap.Tests
             Check.True(ArenaFinder.FindOuterBand(f, 2, out _) == null, "too wide to close");
         }
 
+        public static void GivesUpWhenMappingStartedOutsideTheWall()
+        {
+            var f = Run(Walled(1f), seedX: 15.2f, seedZ: 0.2f);
+            Check.True(ArenaFinder.FindOuterBand(f, 2, out _) == null, "the start point would be trimmed");
+        }
+
         public static void ClassifyTreatsTheBandAsOutside()
         {
             var f = Run(Walled(1f));
@@ -67,6 +86,7 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(CellClass.Outside, cls[f.IndexOf(15.2f, 0.2f)], "band is outside");
             Check.Equal(CellClass.Outside, cls[f.IndexOf(10.5f, 5.5f)], "the wall itself is outside, not an obstacle");
             Check.Equal(CellClass.Walkable, cls[f.IndexOf(0.2f, 0.2f)], "arena is ground");
+            Check.Equal(CellClass.Obstacle, cls[f.IndexOf(6.5f, 4.2f)], "the room's wall is an obstacle");
         }
     }
 }

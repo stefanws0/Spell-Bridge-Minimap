@@ -6,9 +6,10 @@ namespace SpellBrigadeMinimap.Core
     /// <summary>
     /// Separates the arena from NavMesh that reaches past its walls. In The Spell Brigade the NavMesh extends
     /// beyond the arena's rock wall (enemies come in from out there), so the flood leaks through gaps in the
-    /// wall. This seals gaps up to 2 x radius cells wide by growing every non-walkable cell by that radius,
-    /// floods from where mapping started, then grows the result back by the same radius. Walkable cells left
-    /// out are the band beyond the walls.
+    /// wall. This grows every non-walkable cell by <c>radius</c>, which seals gaps up to 2 x radius wide, then
+    /// floods inward from just inside the NavMesh's outer edge and grows the result back by the same radius.
+    /// What that reaches is the band beyond the walls. Pockets inside the arena that only connect through
+    /// narrow openings (a ruin, a stone circle) are never reached from outside, so they stay part of the arena.
     /// </summary>
     public static class ArenaFinder
     {
@@ -16,9 +17,9 @@ namespace SpellBrigadeMinimap.Core
         public const float MinKept = 0.25f, MaxKept = 0.95f;
 
         /// <summary>
-        /// Returns a per-cell flag for walkable cells outside the arena, or null when the result doesn't look like
-        /// an enclosed arena (no wall, an opening too wide to seal, or almost nothing kept). <paramref name="kept"/>
-        /// is the share of walkable cells inside the arena.
+        /// Returns a per-cell flag for walkable cells beyond the arena walls, or null when the map doesn't look
+        /// like an enclosed arena (no wall, an opening too wide to seal, the start point would be trimmed, or
+        /// almost nothing kept). <paramref name="kept"/> is the share of walkable cells left in the arena.
         /// </summary>
         public static bool[] FindOuterBand(WalkableFlood f, int radius, out float kept)
         {
@@ -38,45 +39,50 @@ namespace SpellBrigadeMinimap.Core
                     blocked[y * w + x] = !f.IsWalkable(x0 + x, y0 + y);
             var sealedOff = Dilate(blocked, w, h, radius, outsideValue: true);
 
-            int seedX = f.SeedIndex % n - x0, seedY = f.SeedIndex / n - y0;
-            int start = NearestFree(sealedOff, w, h, seedX, seedY, radius + 2);
-            if (start < 0) return null;
+            // Start from a ring just inside the walkable area's bounding box, where NavMesh beyond the walls
+            // (if there is any) runs along the edge.
+            int inset = radius + 1;
+            int bx0 = f.MinX - x0 + inset, bx1 = f.MaxX - x0 - inset;
+            int by0 = f.MinY - y0 + inset, by1 = f.MaxY - y0 - inset;
+            if (bx1 <= bx0 || by1 <= by0) return null;
 
-            var inside = new bool[w * h];
+            var outer = new bool[w * h];
             var queue = new Queue<int>();
-            inside[start] = true;
-            queue.Enqueue(start);
+            void Reach(int x, int y)
+            {
+                if ((uint)x >= (uint)w || (uint)y >= (uint)h) return;
+                int i = y * w + x;
+                if (outer[i] || sealedOff[i]) return;
+                outer[i] = true;
+                queue.Enqueue(i);
+            }
+            for (int x = bx0; x <= bx1; x++) { Reach(x, by0); Reach(x, by1); }
+            for (int y = by0; y <= by1; y++) { Reach(bx0, y); Reach(bx1, y); }
             while (queue.Count > 0)
             {
                 int i = queue.Dequeue();
                 int cx = i % w, cy = i / w;
-                void Visit(int x, int y)
-                {
-                    if ((uint)x >= (uint)w || (uint)y >= (uint)h) return;
-                    int j = y * w + x;
-                    if (inside[j] || sealedOff[j]) return;
-                    inside[j] = true;
-                    queue.Enqueue(j);
-                }
-                Visit(cx - 1, cy);
-                Visit(cx + 1, cy);
-                Visit(cx, cy - 1);
-                Visit(cx, cy + 1);
+                Reach(cx - 1, cy);
+                Reach(cx + 1, cy);
+                Reach(cx, cy - 1);
+                Reach(cx, cy + 1);
             }
-            var arena = Dilate(inside, w, h, radius, outsideValue: false);
+            var grown = Dilate(outer, w, h, radius, outsideValue: false);
 
             var band = new bool[n * n];
-            int walkable = 0, keptCells = 0;
+            int walkable = 0, bandCells = 0;
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++)
                 {
                     int i = y * w + x;
                     if (blocked[i]) continue;
                     walkable++;
-                    if (arena[i]) keptCells++;
-                    else band[(y0 + y) * n + x0 + x] = true;
+                    if (!grown[i]) continue;
+                    bandCells++;
+                    band[(y0 + y) * n + x0 + x] = true;
                 }
-            kept = walkable > 0 ? (float)keptCells / walkable : 1f;
+            kept = walkable > 0 ? (float)(walkable - bandCells) / walkable : 1f;
+            if (band[f.SeedIndex]) return null;
             return kept >= MinKept && kept <= MaxKept ? band : null;
         }
 
@@ -108,20 +114,6 @@ namespace SpellBrigadeMinimap.Core
                     result[y * w + x] = any;
                 }
             return result;
-        }
-
-        static int NearestFree(bool[] sealedOff, int w, int h, int sx, int sy, int maxDistance)
-        {
-            int best = -1, bestD2 = int.MaxValue;
-            for (int dy = -maxDistance; dy <= maxDistance; dy++)
-                for (int dx = -maxDistance; dx <= maxDistance; dx++)
-                {
-                    int x = sx + dx, y = sy + dy;
-                    if ((uint)x >= (uint)w || (uint)y >= (uint)h || sealedOff[y * w + x]) continue;
-                    int d2 = dx * dx + dy * dy;
-                    if (d2 < bestD2) { bestD2 = d2; best = y * w + x; }
-                }
-            return best;
         }
     }
 }
