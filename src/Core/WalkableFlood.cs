@@ -36,6 +36,8 @@ namespace SpellBrigadeMinimap.Core
         /// <summary>True once walkable ground reached the grid's edge (the level may be larger than the grid).</summary>
         public bool TouchedBorder { get; private set; }
         public bool HasWork => queue.Count > 0;
+        /// <summary>Cell index of the first seed (where mapping started, e.g. the player's spawn); -1 before seeding.</summary>
+        public int SeedIndex { get; private set; } = -1;
 
         /// <summary>Creates a grid centered on (centerX, centerZ).</summary>
         public WalkableFlood(int size, float cellSize, float centerX, float centerZ)
@@ -87,6 +89,7 @@ namespace SpellBrigadeMinimap.Core
         {
             int i = IndexOf(x, z);
             if (i < 0) return;
+            if (SeedIndex < 0) SeedIndex = i;
             int cx = i % Size, cy = i / Size;
             for (int dy = -1; dy <= 1; dy++)
                 for (int dx = -1; dx <= 1; dx++)

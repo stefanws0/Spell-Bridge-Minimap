@@ -87,11 +87,11 @@ namespace SpellBrigadeMinimap.Core
         /// spreads, clamped to [MinContrast, MaxContrast]), moves the brightness to the reference's mean, and
         /// shifts the tint toward the reference's by at most MaxTintShift. Alpha is kept.
         /// </summary>
-        public static PixelBuffer Transfer(PixelBuffer img, in ColorStats from, in ColorStats to)
+        public static PixelBuffer Transfer(PixelBuffer img, in ColorStats from, in ColorStats to, float maxTintShift = MaxTintShift)
         {
             float k = from.Y.Std < 1f ? 1f : Math.Min(MaxContrast, Math.Max(MinContrast, to.Y.Std / from.Y.Std));
-            float cbShift = Math.Min(MaxTintShift, Math.Max(-MaxTintShift, to.Cb.Mean - from.Cb.Mean));
-            float crShift = Math.Min(MaxTintShift, Math.Max(-MaxTintShift, to.Cr.Mean - from.Cr.Mean));
+            float cbShift = Math.Min(maxTintShift, Math.Max(-maxTintShift, to.Cb.Mean - from.Cb.Mean));
+            float crShift = Math.Min(maxTintShift, Math.Max(-maxTintShift, to.Cr.Mean - from.Cr.Mean));
             float cbTarget = from.Cb.Mean + cbShift, crTarget = from.Cr.Mean + crShift;
 
             var dst = new PixelBuffer(img.Width, img.Height);

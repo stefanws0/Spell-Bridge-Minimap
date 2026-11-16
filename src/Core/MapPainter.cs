@@ -62,8 +62,8 @@ namespace SpellBrigadeMinimap.Core
         /// <summary>
         /// Composes captured level art (one pixel per cell of <paramref name="crop"/>) with the cell classes:
         /// ground and obstacles show the art, ground next to the outside is drawn as a solid edge line,
-        /// obstacle rims get the obstacle edge colour when <paramref name="highlightObstacles"/> is on, and
-        /// everything outside the level is left transparent.
+        /// obstacle rims get the obstacle edge colour when <paramref name="highlightObstacles"/> is on, the cells
+        /// just outside the arena edge get the obstacle edge colour too, and the rest of the outside is transparent.
         /// </summary>
         public static PaintedMap PaintArt(WalkableFlood f, CellClass[] cls, PixelBuffer art, in MapPalette palette, CropRect crop, bool highlightObstacles)
         {
@@ -93,7 +93,8 @@ namespace SpellBrigadeMinimap.Core
                             c = highlightObstacles && Touches(cx, cy, CellClass.Walkable) ? palette.ObstacleEdge : a;
                             break;
                         default:
-                            c = Rgba.Clear;
+                            // A dark line just outside the arena edge, like the outlines on obstacles.
+                            c = Touches(cx, cy, CellClass.Walkable) ? palette.ObstacleEdge : Rgba.Clear;
                             break;
                     }
                     img.SetPixel(x, y, c);
@@ -108,19 +109,22 @@ namespace SpellBrigadeMinimap.Core
         /// Walkable cells stay walkable. A non-walkable cell is Outside if it connects to the grid border
         /// through other non-walkable cells (4-neighbour steps), and an Obstacle if walkable ground encloses it.
         /// Obstacles smaller than <paramref name="minObstacleCells"/> (pebbles, small props) count as ground.
+        /// Cells flagged in <paramref name="excluded"/> (e.g. NavMesh beyond the arena walls) count as not walkable.
         /// </summary>
-        public static CellClass[] Classify(WalkableFlood f, int minObstacleCells = 1)
+        public static CellClass[] Classify(WalkableFlood f, int minObstacleCells = 1, bool[] excluded = null)
         {
             int n = f.Size;
             var cls = new CellClass[n * n];
             var outside = new bool[n * n];
             var queue = new Queue<int>();
 
+            bool Walkable(int cx, int cy) => f.IsWalkable(cx, cy) && (excluded == null || !excluded[cy * n + cx]);
+
             void Reach(int cx, int cy)
             {
                 if ((uint)cx >= (uint)n || (uint)cy >= (uint)n) return;
                 int i = cy * n + cx;
-                if (outside[i] || f.IsWalkable(cx, cy)) return;
+                if (outside[i] || Walkable(cx, cy)) return;
                 outside[i] = true;
                 queue.Enqueue(i);
             }
@@ -146,7 +150,7 @@ namespace SpellBrigadeMinimap.Core
                 for (int cx = 0; cx < n; cx++)
                 {
                     int i = cy * n + cx;
-                    cls[i] = f.IsWalkable(cx, cy) ? CellClass.Walkable
+                    cls[i] = Walkable(cx, cy) ? CellClass.Walkable
                            : outside[i] ? CellClass.Outside
                            : CellClass.Obstacle;
                 }

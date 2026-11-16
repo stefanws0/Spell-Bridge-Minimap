@@ -95,6 +95,13 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(new Rgba(145, 77, 100), got, "red tint moved by 32, not 80");
         }
 
+        public static void TintShiftCanBeTurnedDown()
+        {
+            var img = Fill(1, 1, new Rgba(100, 100, 100));
+            var got = ColorMatch.Transfer(img, Stats(100f, 10f), Stats(100f, 10f, cr: 80f), maxTintShift: 0f).GetPixel(0, 0);
+            Check.Equal(new Rgba(100, 100, 100), got, "brightness only, tint untouched");
+        }
+
         public static void TransferClampsAndKeepsAlpha()
         {
             var img = Fill(1, 1, new Rgba(250, 250, 250, 77));

@@ -112,10 +112,10 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(ArtColor, PixelAt(ArtMap(highlight: false), 2.2f, 0.2f), "plain art when off");
         }
 
-        public static void ArtOutsideTheLevelIsLeftEmpty()
+        public static void ArtOutsideTheLevelIsEmptyApartFromADarkEdge()
         {
             Check.Equal(Rgba.Clear, PixelAt(ArtMap(highlight: true), -12.5f, -12.5f), "outside the arena");
-            Check.Equal(Rgba.Clear, PixelAt(ArtMap(highlight: true), 10.2f, 0.2f), "just past the arena edge");
+            Check.Equal(Palette.ObstacleEdge, PixelAt(ArtMap(highlight: true), 10.2f, 0.2f), "dark line just past the arena edge");
         }
 
         public static void ArtMustMatchTheCrop()
