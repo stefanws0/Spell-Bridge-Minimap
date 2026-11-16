@@ -74,6 +74,42 @@ namespace SpellBrigadeMinimap.Core
             return new Rgba((byte)(RimLight.R * k), (byte)(RimLight.G * k), (byte)(RimLight.B * k), (byte)(255 * alpha));
         });
 
+        static readonly Rgba Amber = new Rgba(255, 200, 48, 255);
+
+        /// <summary>
+        /// A hazard sign: an amber triangle with a dark border and a dark exclamation mark. Drawn in its own colours
+        /// (not tinted), like the game's warning signs.
+        /// </summary>
+        public static PixelBuffer Warning(int size) => Render(size, (u, v) =>
+        {
+            if (!InWarning(u, v)) return Rgba.Clear;
+            const float t = 0.07f;
+            bool inner = InWarning(u + t, v) && InWarning(u - t, v) && InWarning(u, v + t) && InWarning(u, v - t);
+            if (!inner) return Border;
+            bool bar = Math.Abs(u - 0.5f) <= 0.05f && v >= 0.38f && v <= 0.72f;
+            float dx = u - 0.5f, dy = v - 0.25f;
+            bool dot = dx * dx + dy * dy <= 0.06f * 0.06f;
+            return bar || dot ? Border : Amber;
+        });
+
+        /// <summary>
+        /// A teleport portal: an upright oval ring (white, so UI tinting colours it) with a dark border and a
+        /// faint see-through center.
+        /// </summary>
+        public static PixelBuffer Portal(int size) => Render(size, (u, v) =>
+        {
+            float ex = (u - 0.5f) / 0.30f, ey = (v - 0.5f) / 0.46f;
+            float e = (float)Math.Sqrt(ex * ex + ey * ey);
+            if (e > 1f) return Rgba.Clear;
+            if (e > 0.88f) return Border;
+            if (e > 0.62f) return Rgba.White;
+            if (e > 0.54f) return Border;
+            return new Rgba(255, 255, 255, 90);
+        });
+
+        // Apex (0.5, 0.94), base corners (0.05, 0.08) and (0.95, 0.08).
+        static bool InWarning(float u, float v) => InTriangle(u, v, 0.5f, 0.94f, 0.95f, 0.08f, 0.05f, 0.08f);
+
         static PixelBuffer Render(int size, Func<float, float, Rgba> shade)
         {
             var img = new PixelBuffer(size, size);

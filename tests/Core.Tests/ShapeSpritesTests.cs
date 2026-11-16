@@ -40,6 +40,28 @@ namespace SpellBrigadeMinimap.Tests
             Check.True(shadow.A > 0 && shadow.A < 255 && shadow.R < 40, $"soft dark inner shadow: {shadow}");
         }
 
+        public static void WarningIsAnAmberTriangleWithAnExclamationMark()
+        {
+            var img = ShapeSprites.Warning(64);
+            Check.Equal((byte)0, img.GetPixel(2, 62).A, "clear top corner");
+            Rgba body = img.GetPixel(20, 14);
+            Check.True(body.A == 255 && body.R > 230 && body.G > 160 && body.B < 80, $"amber body: {body}");
+            Rgba mark = img.GetPixel(32, 36);
+            Check.True(mark.A == 255 && mark.R < 40, $"dark exclamation mark: {mark}");
+            Rgba dot = img.GetPixel(32, 15);
+            Check.True(dot.R < 40, $"dark dot under it: {dot}");
+        }
+
+        public static void PortalIsAnOvalRingWithAFaintCenter()
+        {
+            var img = ShapeSprites.Portal(64);
+            Check.Equal((byte)0, img.GetPixel(2, 32).A, "clear at the sides");
+            Rgba center = img.GetPixel(32, 32);
+            Check.True(center.A > 0 && center.A < 160, $"see-through center: {center}");
+            Rgba ring = img.GetPixel(32, 57);
+            Check.True(ring.A == 255 && ring.R > 200, $"white ring at the top: {ring}");
+        }
+
         public static void DiamondHasClearCorners()
         {
             var img = ShapeSprites.Diamond(32, 0.1f);

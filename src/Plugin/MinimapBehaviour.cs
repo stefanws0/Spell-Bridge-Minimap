@@ -63,7 +63,7 @@ namespace SpellBrigadeMinimap
             }
             if (rm.Pointer != runPtr) StartRun(rm);
 
-            scanner.Tick(now, cfg.ShowEnemies.Value, cfg.ShowObjectives.Value || cfg.ShowPickups.Value);
+            scanner.Tick(now, cfg.ShowEnemies.Value, cfg.ShowObjectives.Value || cfg.ShowPickups.Value, cfg.ShowMapFeatures.Value);
             discovery.Tick(now, scanner.Pois);
 
             // Map the level as early as possible: from the player (even mid-air while dropping in), or from a

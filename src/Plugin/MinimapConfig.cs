@@ -13,12 +13,12 @@ namespace SpellBrigadeMinimap
         public readonly ConfigEntry<ScreenCorner> Corner;
         public readonly ConfigEntry<MapShape> Shape;
         public readonly ConfigEntry<MapStyle> Style;
-        public readonly ConfigEntry<bool> HighlightObstacles, TrimOutsideArena, PaintFromGameView;
-        public readonly ConfigEntry<string> ObstacleKeywords;
+        public readonly ConfigEntry<bool> HighlightObstacles, TrimOutsideArena, PaintFromGameView, LiftDarkGround;
+        public readonly ConfigEntry<string> ObstacleKeywords, TintKeywords;
         public readonly ConfigEntry<float> Size, Margin, BottomOffset, Opacity;
         public readonly ConfigEntry<float> Radius, MinRadius, MaxRadius;
         public readonly ConfigEntry<bool> RotateWithCamera;
-        public readonly ConfigEntry<bool> ShowEnemies, ShowObjectives, ShowPickups, ShowTeammates, ShowMoreEvents;
+        public readonly ConfigEntry<bool> ShowEnemies, ShowObjectives, ShowPickups, ShowTeammates, ShowMoreEvents, ShowMapFeatures;
         public readonly ConfigEntry<bool> HideUndiscoveredObjectives, SaveDebugImages;
 
         public MinimapConfig(ConfigFile f)
@@ -37,6 +37,10 @@ namespace SpellBrigadeMinimap
                 "Experimental: recolour the minimap every few seconds with what the game camera shows. Off by default: the map keeps changing while you play.");
             ObstacleKeywords = f.Bind("Look", "ObstacleKeywords", "rock,boulder,border,wall,cliff,pillar,stone,volcano,vulcano",
                 "Scenery at least 1 unit tall whose material, mesh or object name contains one of these words is drawn as an obstacle (things you can't walk through), even if the game keeps its collider elsewhere. Pebbles, grass, bushes, flowers and trees never count. Comma-separated.");
+            LiftDarkGround = f.Bind("Look", "LiftDarkGround", true,
+                "Pixelated style: brighten the darkest patches of ground toward the map's lighter ground, so only obstacles are near-black. Helps on the fire and astral maps.");
+            TintKeywords = f.Bind("Look", "TintKeywords", "deathbush:C8343C",
+                "Pixelated style: scenery whose material, mesh or object name contains the word is coloured on the map, as word:RRGGBB. Comma-separated (e.g. deathbush:C8343C).");
             Size = f.Bind("Layout", "Size", 220f, new ConfigDescription("Side length in pixels at 1080p.", new AcceptableValueRange<float>(100f, 600f)));
             Margin = f.Bind("Layout", "Margin", 16f, new ConfigDescription("Gap from the screen edges in pixels at 1080p.", new AcceptableValueRange<float>(0f, 200f)));
             BottomOffset = f.Bind("Layout", "BottomOffset", 30f, new ConfigDescription("Extra gap below the minimap in a bottom corner, so it sits above the game's text bar (pixels at 1080p).", new AcceptableValueRange<float>(0f, 400f)));
@@ -52,6 +56,7 @@ namespace SpellBrigadeMinimap
             ShowPickups = f.Bind("Layers", "ShowPickups", true, "Artifact, health and magnet pickups the game points at.");
             ShowTeammates = f.Bind("Layers", "ShowTeammates", true, "Other players.");
             ShowMoreEvents = f.Bind("Layers", "ShowMoreEvents", true, "MoreEvents targets and zones (only when MoreEvents is installed).");
+            ShowMapFeatures = f.Bind("Layers", "ShowMapFeatures", true, "Warning signs on traps (the ice map's geysers) and teleport portals (bright when open).");
             HideUndiscoveredObjectives = f.Bind("Layers", "HideUndiscoveredObjectives", true, "Only show an objective once someone in the party has had it on screen. Discoveries are shared with other players who run this mod, through the host.");
 
             SaveDebugImages = f.Bind("Debug", "SaveDebugImages", false, "Save the level picture, the game-view colour sample and the finished minimap as PNGs in BepInEx/minimap-debug each run.");

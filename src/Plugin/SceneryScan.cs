@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using SpellBrigadeMinimap.Core;
 using UnityEngine;
 using UObject = UnityEngine.Object;
 
@@ -18,11 +19,22 @@ namespace SpellBrigadeMinimap
     internal sealed class SceneryScan
     {
         const float MinSolidHeight = 1f;
-        static readonly string[] EffectWords = { "respawn", "gore", "splash", "crosshair", "blood", "tornado", "hazard" };
+        static readonly string[] EffectWords = { "respawn", "gore", "splash", "crosshair", "blood", "tornado", "hazard", "objectivemask" };
         static readonly string[] NeverSolidWords = { "pebble", "grass", "bush", "flower", "tree", "foliage", "dandilion", "dandelion" };
 
         public readonly List<Renderer> Solid = new List<Renderer>();
         public readonly List<Renderer> Effects = new List<Renderer>();
+        /// <summary>Scenery to colour on the map (e.g. red death bushes), one group per tint rule.</summary>
+        public readonly List<TintGroup> Tints = new List<TintGroup>();
+        /// <summary>The river's renderers (the game draws a river as a line along a spline).</summary>
+        public readonly List<Renderer> Rivers = new List<Renderer>();
+
+        public sealed class TintGroup
+        {
+            public string Word;
+            public Rgba Color;
+            public readonly List<Renderer> Renderers = new List<Renderer>();
+        }
 
         sealed class Row
         {
@@ -31,10 +43,11 @@ namespace SpellBrigadeMinimap
             public string Kind, Collider;
         }
 
-        public static SceneryScan Run(float originX, float originZ, float maxX, float maxZ, string obstacleKeywordList, bool writeReport)
+        public static SceneryScan Run(float originX, float originZ, float maxX, float maxZ, string obstacleKeywordList, string tintList, bool writeReport)
         {
             var scan = new SceneryScan();
             string[] obstacleKeys = (obstacleKeywordList ?? "").Split(',').Select(k => k.Trim().ToLowerInvariant()).Where(k => k.Length > 0).ToArray();
+            scan.Tints.AddRange(ParseTints(tintList));
             var rows = writeReport ? new Dictionary<string, Row>() : null;
 
             var meshes = UObject.FindObjectsOfType<MeshRenderer>();
@@ -50,11 +63,21 @@ namespace SpellBrigadeMinimap
                 string kind = "";
                 Collider col = null;
                 if (Matches(EffectWords, mat, mesh, obj)) { scan.Effects.Add(r); kind = "effect"; }
-                else if (b.size.y >= MinSolidHeight && !Matches(NeverSolidWords, mat, mesh, obj))
+                else
                 {
-                    if (Matches(obstacleKeys, mat, mesh, obj)) kind = "SOLID";
-                    else if ((col = SolidCollider(r.gameObject)) != null) kind = "SOLID";
-                    if (kind == "SOLID") scan.Solid.Add(r);
+                    if (b.size.y >= MinSolidHeight && !Matches(NeverSolidWords, mat, mesh, obj))
+                    {
+                        if (Matches(obstacleKeys, mat, mesh, obj)) kind = "SOLID";
+                        else if ((col = SolidCollider(r.gameObject)) != null) kind = "SOLID";
+                        if (kind == "SOLID") scan.Solid.Add(r);
+                    }
+                    foreach (var t in scan.Tints)
+                        if (Matches(new[] { t.Word }, mat, mesh, obj))
+                        {
+                            t.Renderers.Add(r);
+                            kind = kind.Length > 0 ? kind + "+tint" : "tint";
+                            break;
+                        }
                 }
 
                 if (rows != null)
@@ -68,7 +91,19 @@ namespace SpellBrigadeMinimap
                 }
             }
 
-            Mod.Log.LogInfo($"Scenery: {scan.Solid.Count} rocks and walls, {scan.Effects.Count} ground effects hidden from pictures.");
+            try
+            {
+                var rivers = UObject.FindObjectsOfType<River>();
+                for (int i = 0; i < rivers.Length; i++)
+                {
+                    var lr = rivers[i] != null ? rivers[i].riverRenderer : null;
+                    if (lr != null && lr.enabled) scan.Rivers.Add(lr);
+                }
+            }
+            catch (Exception e) { LogOnce.Error("finding the river", e); }
+
+            Mod.Log.LogInfo($"Scenery: {scan.Solid.Count} rocks and walls, {scan.Effects.Count} ground effects hidden from pictures, "
+                + $"{scan.Tints.Sum(t => t.Renderers.Count)} tinted, {scan.Rivers.Count} river(s).");
 
             if (rows != null)
             {
@@ -81,6 +116,24 @@ namespace SpellBrigadeMinimap
                 DebugImages.SaveText("scene-objects", sb.ToString());
             }
             return scan;
+        }
+
+        /// <summary>"deathbush:C8343C, lava:FF8800" as (word, colour) rules; bad entries are skipped with a warning.</summary>
+        static IEnumerable<TintGroup> ParseTints(string list)
+        {
+            foreach (var entry in (list ?? "").Split(','))
+            {
+                if (entry.Trim().Length == 0) continue;
+                var parts = entry.Split(':');
+                string word = parts.Length == 2 ? parts[0].Trim().ToLowerInvariant() : "";
+                string hex = parts.Length == 2 ? parts[1].Trim().TrimStart('#') : "";
+                if (word.Length == 0 || hex.Length != 6 || !int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out int rgb))
+                {
+                    Mod.Log.LogWarning($"Ignoring tint '{entry.Trim()}' (expected word:RRGGBB).");
+                    continue;
+                }
+                yield return new TintGroup { Word = word, Color = new Rgba((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb) };
+            }
         }
 
         /// <summary>An enabled, non-trigger collider on the object, its children or its parents.</summary>

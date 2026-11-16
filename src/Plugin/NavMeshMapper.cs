@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using SpellBrigadeMinimap.Core;
@@ -62,6 +63,13 @@ namespace SpellBrigadeMinimap
         const float PaintSeconds = 2.5f;     // how often the game view is painted onto the map
         const float PaintMinSamples = 3f;
         const float OccluderHeight = 4f;     // rays crossing an obstacle this close to the ground show its side
+        const float LiftFloor = 0.8f;        // ground darker than this x its 75th-percentile brightness is lifted...
+        const float LiftKeep = 0.3f;         // ...keeping this much of how far below that it was
+        const float TintCoverage = 0.3f;     // a cell at least this covered by tinted scenery takes the tint
+        const float TintStrength = 0.85f;
+        const float RiverStrength = 0.55f;
+        static readonly Rgba RiverWater = new Rgba(132, 124, 200);   // the astral river's lavender, a little bluer
+        static readonly Rgba RiverBank = new Rgba(214, 204, 240);    // the pale line along its banks
 
         static readonly MapPalette FlatPalette = new MapPalette(
             ground: new Rgba(58, 66, 74), groundEdge: new Rgba(253, 248, 206),
@@ -80,6 +88,15 @@ namespace SpellBrigadeMinimap
         CellClass[] classes;
         SceneryScan scenery;
         PixelBuffer rawArt, baseArt;
+        List<MapTint> tints;
+
+        sealed class MapTint
+        {
+            public float[] Cover;
+            public Rgba Color;
+            public float Strength;
+            public Rgba? Edge;
+        }
         ViewPainter painter;
         CropRect artCrop;
         float floodStarted, nextPreview, nextRetry, nextPaint;
@@ -95,6 +112,7 @@ namespace SpellBrigadeMinimap
             classes = null;
             scenery = null;
             rawArt = baseArt = null;
+            tints = null;
             painter = null;
             retries = 0;
             failed = radarLogged = artFailed = artShown = savedFinal = false;
@@ -215,7 +233,7 @@ namespace SpellBrigadeMinimap
             {
                 float ox = flood.OriginX + crop.X * CellSize, oz = flood.OriginZ + crop.Y * CellSize;
                 return SceneryScan.Run(ox, oz, ox + crop.Width * CellSize, oz + crop.Height * CellSize,
-                    Mod.Settings.ObstacleKeywords.Value, Mod.Settings.SaveDebugImages.Value);
+                    Mod.Settings.ObstacleKeywords.Value, Mod.Settings.TintKeywords.Value, Mod.Settings.SaveDebugImages.Value);
             }
             catch (Exception e)
             {
@@ -326,14 +344,15 @@ namespace SpellBrigadeMinimap
         void TakePicture()
         {
             rawArt = baseArt = null;
+            tints = null;
             painter = null;
             artShown = savedFinal = false;
             if (artFailed || Mod.Settings.Style.Value != MapStyle.Pixelated) return;
             if (!MapPainter.TryCrop(flood, ArtPadding, out artCrop)) return;
+            float ox = flood.OriginX + artCrop.X * CellSize, oz = flood.OriginZ + artCrop.Y * CellSize;
             try
             {
                 var sw = Stopwatch.StartNew();
-                float ox = flood.OriginX + artCrop.X * CellSize, oz = flood.OriginZ + artCrop.Y * CellSize;
                 rawArt = LevelSnapshot.CaptureLevel(ox, oz, artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight, scenery?.Effects);
                 DebugImages.Save("1-level-picture", rawArt);
                 Mod.Log.LogInfo($"Captured level picture: {artCrop.Width} x {artCrop.Height} pixels in {sw.ElapsedMilliseconds} ms.");
@@ -342,7 +361,47 @@ namespace SpellBrigadeMinimap
             {
                 artFailed = true;
                 LogOnce.Error("taking the level picture (keeping the flat map)", e);
+                return;
             }
+            tints = CaptureTints(ox, oz);
+        }
+
+        /// <summary>
+        /// Where the tinted scenery (e.g. death bushes) and the river lie, from one render of each group alone.
+        /// The river gets pale banks so it reads as water.
+        /// </summary>
+        List<MapTint> CaptureTints(float ox, float oz)
+        {
+            var result = new List<MapTint>();
+            if (scenery == null) return result;
+            var groups = new List<(IEnumerable<Renderer> renderers, string name, Rgba color, float strength, Rgba? edge)>();
+            foreach (var t in scenery.Tints)
+                if (t.Renderers.Count > 0) groups.Add((t.Renderers, t.Word, t.Color, TintStrength, null));
+            if (scenery.Rivers.Count > 0) groups.Add((scenery.Rivers, "river", RiverWater, RiverStrength, RiverBank));
+            if (groups.Count == 0) return result;
+            try
+            {
+                int layer = LevelSnapshot.FreeLayer();
+                if (layer < 0) return result;
+                var debug = new PixelBuffer(artCrop.Width, artCrop.Height);
+                foreach (var g in groups)
+                {
+                    var cover = LevelSnapshot.OnLayer(g.renderers.Where(r => r != null).Select(r => r.gameObject), layer,
+                        () => LevelSnapshot.CaptureCoverage(ox, oz, artCrop.Width, artCrop.Height, CellSize, flood.MaxHeight, layer));
+                    int cells = 0;
+                    for (int i = 0; i < cover.Length; i++)
+                        if (cover[i] >= TintCoverage)
+                        {
+                            cells++;
+                            debug.SetPixel(i % artCrop.Width, i / artCrop.Width, g.color);
+                        }
+                    Mod.Log.LogInfo($"Tint '{g.name}' covers {cells} cells.");
+                    if (cells > 0) result.Add(new MapTint { Cover = cover, Color = g.color, Strength = g.strength, Edge = g.edge });
+                }
+                DebugImages.Save("1b-tints", debug);
+            }
+            catch (Exception e) { LogOnce.Error("finding tinted scenery and the river", e); }
+            return result;
         }
 
         /// <summary>Matches the picture's brightness to the game camera's view, starts painting the game view on it, and shows it.</summary>
@@ -420,7 +479,10 @@ namespace SpellBrigadeMinimap
             };
         }
 
-        /// <summary>Lays the painted game view over the base picture, calms the grass, and draws the minimap.</summary>
+        /// <summary>
+        /// Lays the painted game view over the base picture, calms the grass, lifts dark ground so only obstacles
+        /// are near-black, colours tinted scenery and the river, and draws the minimap.
+        /// </summary>
         bool Recompose()
         {
             try
@@ -428,6 +490,15 @@ namespace SpellBrigadeMinimap
                 var art = baseArt;
                 if (painter != null) art = ArtFilter.Overlay(art, painter.Result(PaintMinSamples));
                 art = ArtFilter.CalmGrass(art, CalmRadius, CalmStrength, CalmLift);
+                if (Mod.Settings.LiftDarkGround.Value)
+                {
+                    int n = flood.Size;
+                    art = ArtFilter.LiftShadows(art,
+                        (x, y) => classes[(artCrop.Y + y) * n + artCrop.X + x] == CellClass.Walkable, LiftFloor, LiftKeep);
+                }
+                if (tints != null)
+                    foreach (var t in tints)
+                        art = ArtFilter.Tint(art, t.Cover, TintCoverage, t.Color, t.Strength, t.Edge);
                 var painted = MapPainter.PaintArt(flood, classes, art, ArtPalette, artCrop, Mod.Settings.HighlightObstacles.Value);
                 if (!savedFinal)
                 {

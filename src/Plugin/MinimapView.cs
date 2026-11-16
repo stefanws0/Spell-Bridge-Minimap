@@ -23,6 +23,9 @@ namespace SpellBrigadeMinimap
         static readonly Color DownedColor = new Color(1f, 0.35f, 0.35f, 1f);
         static readonly Color DangerColor = new Color(1f, 0.3f, 0.2f, 1f);
         static readonly Color PickupColor = new Color(0.5f, 1f, 0.6f, 1f);
+        static readonly Color PortalOpen = new Color(0.78f, 0.6f, 1f, 1f);
+        static readonly Color PortalClosed = new Color(0.78f, 0.6f, 1f, 0.35f);
+        const float TrapSize = 15f, PortalSize = 18f;
 
         readonly MinimapConfig cfg;
         readonly GameObject root;
@@ -36,7 +39,7 @@ namespace SpellBrigadeMinimap
         readonly Image you;
         readonly PixelBuffer dotPixels = new PixelBuffer(DotTextureSize, DotTextureSize);
         readonly Texture2D dotTexture;
-        readonly Sprite disc, ring, arrow, diamond, roundShape, badgeRing;
+        readonly Sprite disc, ring, arrow, diamond, roundShape, badgeRing, warning, portal;
 
         BakedMap map;
         bool visible = true, dotsEmpty, round;
@@ -54,6 +57,8 @@ namespace SpellBrigadeMinimap
             diamond = SpriteFactory.ToSprite(ShapeSprites.Diamond(32, 0.1f));
             roundShape = SpriteFactory.ToSprite(ShapeSprites.Disc(256, 0f));
             badgeRing = SpriteFactory.ToSprite(ShapeSprites.Ring(64, 0.12f));
+            warning = SpriteFactory.ToSprite(ShapeSprites.Warning(48));
+            portal = SpriteFactory.ToSprite(ShapeSprites.Portal(48));
 
             root = new GameObject("SpellBrigadeMinimap");
             Object.DontDestroyOnLoad(root);
@@ -145,11 +150,18 @@ namespace SpellBrigadeMinimap
                 foreach (var m in markers)
                     if (m.Zone && m.Radius > 0f)
                         zones.Place(ring, m.Color, ToUnity(MapMath.WorldToPanel(view, m.Pos)), m.Radius * 2f * scale, 0f);
+            if (cfg.ShowMapFeatures.Value)
+                foreach (var f in s.Features)
+                    if (f.Kind == FeatureKind.Trap) DrawFeature(zones, warning, Color.white, f.Pos, view, TrapSize);
             zones.End();
 
             DrawEnemies(s, view);
 
             icons.Begin();
+            if (cfg.ShowMapFeatures.Value)
+                foreach (var f in s.Features)
+                    if (f.Kind == FeatureKind.Portal)
+                        DrawFeature(icons, portal, f.Active ? PortalOpen : PortalClosed, f.Pos, view, PortalSize);
             foreach (var poi in s.Pois) DrawPoi(poi, view, discovery);
             if (cfg.ShowMoreEvents.Value)
                 foreach (var m in markers)
@@ -216,6 +228,14 @@ namespace SpellBrigadeMinimap
             Color color = poi.Sprite != null ? poi.Color : KindColor(poi.Kind);
             float size = poi.Kind == PoiKind.Boss ? 24f : 20f;
             DrawPoint(sprite, color, p, size, view.HalfSize, poi.ClampToEdge);
+        }
+
+        /// <summary>An upright icon for a fixed level feature, only while it's on the minimap.</summary>
+        void DrawFeature(IconPool pool, Sprite sprite, Color color, NVec2 world, in MapView view, float size)
+        {
+            NVec2 p = MapMath.WorldToPanel(view, world);
+            if (!(round ? MapMath.IsInsideCircle(p, view.HalfSize) : MapMath.IsInside(p, view.HalfSize))) return;
+            pool.Place(sprite, color, ToUnity(p), size, 0f);
         }
 
         /// <summary>Draws an icon; if it's off the panel and <paramref name="clamp"/> is set, pins it to the edge with an arrow.</summary>

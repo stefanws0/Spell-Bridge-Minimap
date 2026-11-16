@@ -22,7 +22,7 @@ namespace SpellBrigadeMinimap
         const float CameraHeight = 12f;     // above the highest ground; low, because fog grows with distance
         const int UiLayer = 5;
         static readonly Rgba CoverageKey = new Rgba(255, 0, 255);
-        static bool fogLogged, gradingLogged;
+        static bool fogLogged, gradingLogged, layersLogged;
 
         /// <summary>
         /// Renders the world rectangle straight down and returns one averaged pixel per cell. Players, enemies,
@@ -40,7 +40,7 @@ namespace SpellBrigadeMinimap
             int ss = SupersampleFor(cellsW, cellsH);
             var hidden = new List<Renderer>();
             var lensEffectsOff = new List<VolumeComponent>();
-            byte[] bytes = RenderTopDown(originX, originZ, cellsW, cellsH, cellSize, groundY, ss, ~(1 << UiLayer), Color.black,
+            byte[] bytes = RenderTopDown(originX, originZ, cellsW, cellsH, cellSize, groundY, ss, GameLayers(), Color.black,
                 cam =>
                 {
                     HideMovingThings(hidden);
@@ -58,6 +58,29 @@ namespace SpellBrigadeMinimap
                         if (c != null) c.active = true;
                 });
             return PixelBuffer.Downsample(bytes, cellsW * ss, cellsH * ss, ss);
+        }
+
+        /// <summary>
+        /// The layers the game camera draws, without UI. Helper objects the player never sees (such as the masks
+        /// inside portals) sit on layers the game camera skips.
+        /// </summary>
+        static int GameLayers()
+        {
+            int mask = ~(1 << UiLayer);
+            try
+            {
+                var main = Camera.main;
+                if (main != null && (main.cullingMask & mask & 1) != 0) mask &= main.cullingMask;
+                if (!layersLogged)
+                {
+                    layersLogged = true;
+                    var skipped = new List<int>();
+                    for (int i = 0; i < 32; i++) if ((mask & (1 << i)) == 0) skipped.Add(i);
+                    Mod.Log.LogInfo($"Level picture skips layers {string.Join(", ", skipped)} (as the game camera does).");
+                }
+            }
+            catch (Exception e) { LogOnce.Error("reading the game camera's layers", e); }
+            return mask;
         }
 
         /// <summary>The highest layer from 8 up that no renderer in the scene uses, or -1.</summary>
@@ -277,6 +300,19 @@ namespace SpellBrigadeMinimap
 
         static void HideMovingThings(List<Renderer> hidden)
         {
+            // The river is drawn by a LineRenderer; it stays, every other line, trail and particle goes.
+            var keep = new HashSet<IntPtr>();
+            try
+            {
+                var rivers = UObject.FindObjectsOfType<River>();
+                for (int i = 0; i < rivers.Length; i++)
+                {
+                    var lr = rivers[i] != null ? rivers[i].riverRenderer : null;
+                    if (lr != null) keep.Add(lr.Pointer);
+                }
+            }
+            catch (Exception e) { LogOnce.Error("finding the river for the level picture", e); }
+
             void HideUnder(Component root)
             {
                 if (root == null) return;
@@ -286,10 +322,21 @@ namespace SpellBrigadeMinimap
 
             void Hide(Renderer r)
             {
-                if (r == null || !r.enabled) return;
+                if (r == null || !r.enabled || keep.Contains(r.Pointer)) return;
                 r.enabled = false;
                 hidden.Add(r);
             }
+
+            int tornadoes = 0;
+            try
+            {
+                var all = UObject.FindObjectsOfType<Tornado>();
+                for (int i = 0; i < all.Length; i++)
+                    if (all[i] != null) { HideUnder(all[i]); tornadoes++; }
+            }
+            catch (Exception e) { LogOnce.Error("hiding tornadoes for the level picture", e); }
+            if (tornadoes > 0 || keep.Count > 0)
+                Mod.Log.LogInfo($"Level picture: {tornadoes} tornadoes hidden, {keep.Count} river(s) kept.");
 
             void HideAll<T>() where T : Renderer
             {

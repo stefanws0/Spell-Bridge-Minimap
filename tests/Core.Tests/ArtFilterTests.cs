@@ -53,6 +53,68 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(new Rgba(10, 20, 30), got.GetPixel(0, 0), "bottom picture elsewhere");
         }
 
+        static float Luma(Rgba c) => c.R * 0.299f + c.G * 0.587f + c.B * 0.114f;
+
+        /// <summary>Mostly light ground with a few near-black patches (shadows, crevices).</summary>
+        static PixelBuffer GroundWithDarkPatches()
+        {
+            var img = Fill(20, new Rgba(150, 140, 120));
+            for (int y = 0; y < 20; y++)
+                for (int x = 0; x < 4; x++)
+                    img.SetPixel(x, y, new Rgba(20, 18, 15));
+            return img;
+        }
+
+        public static void LiftShadowsBrightensDarkGroundTowardTheLightGround()
+        {
+            var got = ArtFilter.LiftShadows(GroundWithDarkPatches(), (x, y) => true, 0.8f, 0.3f);
+            Rgba dark = got.GetPixel(1, 5);
+            Check.True(Luma(dark) > 75f, $"near-black patch lifted: {dark}");
+            Check.True(dark.R >= dark.G && dark.G >= dark.B, $"takes the ground's warm colour: {dark}");
+            Check.Equal(new Rgba(150, 140, 120), got.GetPixel(10, 10), "light ground unchanged");
+        }
+
+        public static void LiftShadowsLeavesExcludedPixelsAlone()
+        {
+            var img = GroundWithDarkPatches();
+            img.SetPixel(2, 2, new Rgba(16, 16, 18));
+            var got = ArtFilter.LiftShadows(img, (x, y) => !(x == 2 && y == 2), 0.8f, 0.3f);
+            Check.Equal(new Rgba(16, 16, 18), got.GetPixel(2, 2), "obstacle pixel stays black");
+        }
+
+        public static void LiftShadowsLeavesEvenGroundAlone()
+        {
+            var flat = Fill(12, new Rgba(90, 130, 60));
+            var got = ArtFilter.LiftShadows(flat, (x, y) => true, 0.8f, 0.3f);
+            Check.Equal(new Rgba(90, 130, 60), got.GetPixel(6, 6), "even ground");
+        }
+
+        public static void TintColoursCoveredPixels()
+        {
+            var img = Fill(5, new Rgba(120, 130, 150));
+            var cover = new float[25];
+            cover[2 * 5 + 2] = 1f;
+            var got = ArtFilter.Tint(img, cover, 0.3f, new Rgba(200, 50, 60), 0.9f, null);
+            Rgba c = got.GetPixel(2, 2);
+            Check.True(c.R > 150 && c.G < 90 && c.B < 100, $"covered pixel turns red: {c}");
+            Check.Equal(new Rgba(120, 130, 150), got.GetPixel(0, 0), "uncovered pixel unchanged");
+        }
+
+        public static void TintDrawsTheEdgeColourAlongTheCoveredArea()
+        {
+            var img = Fill(7, new Rgba(60, 60, 90));
+            var cover = new float[49];
+            for (int y = 1; y <= 5; y++)
+                for (int x = 1; x <= 5; x++)
+                    cover[y * 7 + x] = 1f;
+            var bank = new Rgba(220, 210, 240);
+            var got = ArtFilter.Tint(img, cover, 0.3f, new Rgba(130, 120, 190), 0.6f, bank);
+            Check.Equal(bank, got.GetPixel(1, 3), "left bank");
+            Check.Equal(bank, got.GetPixel(3, 5), "top bank");
+            Check.True(!got.GetPixel(3, 3).Equals(bank) && got.GetPixel(3, 3).B > 100, $"water inside: {got.GetPixel(3, 3)}");
+            Check.Equal(new Rgba(60, 60, 90), got.GetPixel(0, 0), "outside unchanged");
+        }
+
         public static void KeepsAlpha()
         {
             var got = ArtFilter.CalmGrass(Fill(5, new Rgba(90, 130, 60, 77)), 1, 0.8f, 0.7f).GetPixel(2, 2);

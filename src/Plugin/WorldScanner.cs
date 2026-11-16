@@ -21,6 +21,17 @@ namespace SpellBrigadeMinimap
 
     internal enum PoiKind { Objective, Boss, Downed, Danger, Pickup, Health }
 
+    internal enum FeatureKind { Trap, Portal }
+
+    /// <summary>A fixed part of the level worth marking: a trap (geyser) or a teleport portal.</summary>
+    internal struct FeatureDot
+    {
+        public NVec2 Pos;
+        public FeatureKind Kind;
+        /// <summary>Portals: open right now. Traps: always true.</summary>
+        public bool Active;
+    }
+
     /// <summary>A point of interest the game itself draws an off-screen pointer for.</summary>
     internal sealed class Poi
     {
@@ -39,6 +50,7 @@ namespace SpellBrigadeMinimap
     {
         const float EnemyInterval = 1f / 15f;
         const float PoiInterval = 0.2f;
+        const float FeatureInterval = 1f;
         const int MaxEnemies = 1500;
         static readonly Color DefaultTeammate = new Color(0.3f, 0.85f, 1f, 1f);
 
@@ -50,9 +62,11 @@ namespace SpellBrigadeMinimap
         public readonly List<PlayerDot> Players = new List<PlayerDot>();
         public readonly List<EnemyDot> Enemies = new List<EnemyDot>();
         public readonly List<Poi> Pois = new List<Poi>();
+        public readonly List<FeatureDot> Features = new List<FeatureDot>();
 
         readonly HashSet<int> eliteTypes = new HashSet<int>();
-        float nextEnemyScan, nextPoiScan;
+        float nextEnemyScan, nextPoiScan, nextFeatureScan;
+        bool featuresLogged;
 
         public void ResetRun(RunManager rm)
         {
@@ -60,7 +74,9 @@ namespace SpellBrigadeMinimap
             Players.Clear();
             Enemies.Clear();
             Pois.Clear();
-            nextEnemyScan = nextPoiScan = 0f;
+            Features.Clear();
+            featuresLogged = false;
+            nextEnemyScan = nextPoiScan = nextFeatureScan = 0f;
             HasCenter = false;
             AddElites(rm.Configuration);
             AddElites(rm.verdantMeadowsConfiguration);
@@ -69,9 +85,16 @@ namespace SpellBrigadeMinimap
             AddElites(rm.astralPlanesConfiguration);
         }
 
-        public void Tick(float now, bool wantEnemies, bool wantPois)
+        public void Tick(float now, bool wantEnemies, bool wantPois, bool wantFeatures)
         {
             ScanPlayers();
+
+            if (!wantFeatures) Features.Clear();
+            else if (now >= nextFeatureScan)
+            {
+                nextFeatureScan = now + FeatureInterval;
+                ScanFeatures();
+            }
 
             if (!wantEnemies) Enemies.Clear();
             else if (now >= nextEnemyScan)
@@ -233,6 +256,64 @@ namespace SpellBrigadeMinimap
                         }
                     }
                 Pois.Add(poi);
+            }
+        }
+
+        /// <summary>Geysers (the ice map's traps) and teleport portals, with which portals are open.</summary>
+        void ScanFeatures()
+        {
+            Features.Clear();
+            int traps = 0, portals = 0, open = 0;
+            try
+            {
+                var geysers = UnityEngine.Object.FindObjectsOfType<GeyserController>();
+                for (int i = 0; i < geysers.Length; i++)
+                {
+                    var g = geysers[i];
+                    if (g == null || !g.isActiveAndEnabled) continue;
+                    Vector3 p = g.transform.position;
+                    Features.Add(new FeatureDot { Pos = new NVec2(p.x, p.z), Kind = FeatureKind.Trap, Active = true });
+                    traps++;
+                }
+            }
+            catch (Exception e) { LogOnce.Error("finding geysers", e); }
+
+            try
+            {
+                var orchestrator = UnityEngine.Object.FindObjectOfType<PortalOrchestrator>();
+                var list = orchestrator != null ? orchestrator.portals : null;
+                var active = orchestrator != null ? orchestrator.activePortalIndices : null;
+                if (list != null)
+                {
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        var portal = list[i];
+                        if (portal == null || !portal.gameObject.activeInHierarchy) continue;
+                        bool isOpen = active != null && active.Contains(i) && !portal.isClosing;
+                        AddPortal(portal, isOpen);
+                    }
+                }
+                else
+                {
+                    var all = UnityEngine.Object.FindObjectsOfType<Portal>();
+                    for (int i = 0; i < all.Length; i++)
+                        if (all[i] != null) AddPortal(all[i], true);
+                }
+
+                void AddPortal(Portal portal, bool isOpen)
+                {
+                    Vector3 p = portal.transform.position;
+                    Features.Add(new FeatureDot { Pos = new NVec2(p.x, p.z), Kind = FeatureKind.Portal, Active = isOpen });
+                    portals++;
+                    if (isOpen) open++;
+                }
+            }
+            catch (Exception e) { LogOnce.Error("finding teleport portals", e); }
+
+            if (!featuresLogged && (traps > 0 || portals > 0))
+            {
+                featuresLogged = true;
+                Mod.Log.LogInfo($"Map features: {traps} geysers, {portals} portals ({open} open).");
             }
         }
 
