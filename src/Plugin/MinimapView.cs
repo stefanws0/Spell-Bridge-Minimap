@@ -24,18 +24,22 @@ namespace SpellBrigadeMinimap
         readonly MinimapConfig cfg;
         readonly GameObject root;
         readonly RectTransform frame, mapRoot;
+        readonly Image frameImg, panelImg;
+        readonly RectMask2D squareMask;
+        readonly Mask roundMask;
         readonly CanvasGroup group;
         readonly RawImage layout;
         readonly IconPool zones, icons;
         readonly Image you;
         readonly PixelBuffer dotPixels = new PixelBuffer(DotTextureSize, DotTextureSize);
         readonly Texture2D dotTexture;
-        readonly Sprite disc, ring, arrow, diamond;
+        readonly Sprite disc, ring, arrow, diamond, roundShape;
 
         BakedMap map;
-        bool visible = true, dotsEmpty;
+        bool visible = true, dotsEmpty, round;
         float lastSize = -1f, lastMargin = -1f;
         ScreenCorner lastCorner = (ScreenCorner)(-1);
+        MapShape lastShape = (MapShape)(-1);
 
         public MinimapView(MinimapConfig cfg)
         {
@@ -44,6 +48,7 @@ namespace SpellBrigadeMinimap
             ring = SpriteFactory.ToSprite(ShapeSprites.Ring(128, 0.03f));
             arrow = SpriteFactory.ToSprite(ShapeSprites.Arrow(32));
             diamond = SpriteFactory.ToSprite(ShapeSprites.Diamond(32, 0.1f));
+            roundShape = SpriteFactory.ToSprite(ShapeSprites.Disc(256, 0f));
 
             root = new GameObject("SpellBrigadeMinimap");
             Object.DontDestroyOnLoad(root);
@@ -55,18 +60,22 @@ namespace SpellBrigadeMinimap
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.matchWidthOrHeight = 1f;
 
-            var frameImg = UiBuilder.NewImage("Frame", root.transform);
+            // The frame is a filled shape in the border colour; the panel is the same shape inset by the
+            // border width, so a thin rim of frame shows around it. The panel also masks everything inside.
+            frameImg = UiBuilder.NewImage("Frame", root.transform);
             frameImg.color = FrameColor;
             frame = frameImg.rectTransform;
             group = frame.gameObject.AddComponent<CanvasGroup>();
             group.blocksRaycasts = false;
             group.interactable = false;
 
-            var panelImg = UiBuilder.NewImage("Panel", frame);
+            panelImg = UiBuilder.NewImage("Panel", frame);
             panelImg.color = Background;
             var panel = panelImg.rectTransform;
             UiBuilder.Stretch(panel, BorderWidth);
-            panel.gameObject.AddComponent<RectMask2D>();
+            squareMask = panel.gameObject.AddComponent<RectMask2D>();
+            roundMask = panel.gameObject.AddComponent<Mask>();
+            roundMask.showMaskGraphic = true;
 
             mapRoot = UiBuilder.NewRect("MapRoot", panel);
             layout = UiBuilder.NewRawImage("Layout", mapRoot);
@@ -186,14 +195,24 @@ namespace SpellBrigadeMinimap
         /// <summary>Draws an icon; if it's off the panel and <paramref name="clamp"/> is set, pins it to the edge with an arrow.</summary>
         void DrawPoint(Sprite sprite, Color color, NVec2 p, float size, float half, bool clamp)
         {
-            if (MapMath.IsInside(p, half))
+            if (round ? MapMath.IsInsideCircle(p, half) : MapMath.IsInside(p, half))
             {
                 icons.Place(sprite, color, ToUnity(p), size, 0f);
                 return;
             }
             if (!clamp) return;
-            MapMath.ClampToEdge(p, half, size * 0.5f + 8f, out NVec2 iconPos, out float angle);
-            MapMath.ClampToEdge(p, half, 5f, out NVec2 arrowPos, out _);
+            NVec2 iconPos, arrowPos;
+            float angle;
+            if (round)
+            {
+                MapMath.ClampToCircle(p, half, size * 0.5f + 8f, out iconPos, out angle);
+                MapMath.ClampToCircle(p, half, 5f, out arrowPos, out _);
+            }
+            else
+            {
+                MapMath.ClampToEdge(p, half, size * 0.5f + 8f, out iconPos, out angle);
+                MapMath.ClampToEdge(p, half, 5f, out arrowPos, out _);
+            }
             icons.Place(sprite, color, ToUnity(iconPos), size * 0.8f, 0f);
             icons.Place(arrow, color, ToUnity(arrowPos), 10f, angle - 90f);
         }
@@ -212,6 +231,17 @@ namespace SpellBrigadeMinimap
 
         void ApplyLayout()
         {
+            MapShape shape = cfg.Shape.Value;
+            if (shape != lastShape)
+            {
+                lastShape = shape;
+                round = shape == MapShape.Round;
+                frameImg.sprite = round ? roundShape : null;
+                panelImg.sprite = round ? roundShape : null;
+                roundMask.enabled = round;
+                squareMask.enabled = !round;
+            }
+
             float size = cfg.Size.Value, margin = cfg.Margin.Value;
             ScreenCorner corner = cfg.Corner.Value;
             if (size == lastSize && margin == lastMargin && corner == lastCorner) return;

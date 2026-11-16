@@ -3,12 +3,17 @@ using BepInEx.Configuration;
 namespace SpellBrigadeMinimap
 {
     internal enum ScreenCorner { TopLeft, TopRight, BottomLeft, BottomRight }
+    internal enum MapShape { Round, Square }
+    internal enum MapStyle { Pixelated, Flat }
 
     internal sealed class MinimapConfig
     {
         public readonly ConfigEntry<bool> Enabled;
         public readonly ConfigEntry<string> ToggleKey, ZoomInKey, ZoomOutKey;
         public readonly ConfigEntry<ScreenCorner> Corner;
+        public readonly ConfigEntry<MapShape> Shape;
+        public readonly ConfigEntry<MapStyle> Style;
+        public readonly ConfigEntry<bool> HighlightObstacles;
         public readonly ConfigEntry<float> Size, Margin, Opacity;
         public readonly ConfigEntry<float> Radius, MinRadius, MaxRadius;
         public readonly ConfigEntry<bool> RotateWithCamera;
@@ -22,6 +27,9 @@ namespace SpellBrigadeMinimap
             ZoomOutKey = f.Bind("General", "ZoomOutKey", "Minus", "Key that zooms out.");
 
             Corner = f.Bind("Layout", "Corner", ScreenCorner.BottomRight, "Screen corner for the minimap.");
+            Shape = f.Bind("Layout", "Shape", MapShape.Round, "Round or square minimap.");
+            Style = f.Bind("Look", "Style", MapStyle.Pixelated, "Pixelated: a pixel-art picture of the level itself, taken at the start of each run. Flat: plain colours for ground and obstacles.");
+            HighlightObstacles = f.Bind("Look", "HighlightObstacles", true, "Pixelated style: draw a rim around obstacles (rocks, trees, walls) so they stand out.");
             Size = f.Bind("Layout", "Size", 220f, new ConfigDescription("Side length in pixels at 1080p.", new AcceptableValueRange<float>(100f, 600f)));
             Margin = f.Bind("Layout", "Margin", 16f, new ConfigDescription("Gap from the screen edges in pixels at 1080p.", new AcceptableValueRange<float>(0f, 200f)));
             Opacity = f.Bind("Layout", "Opacity", 0.85f, new ConfigDescription("Opacity of the whole minimap.", new AcceptableValueRange<float>(0.2f, 1f)));

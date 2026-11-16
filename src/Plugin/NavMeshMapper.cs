@@ -38,6 +38,8 @@ namespace SpellBrigadeMinimap
         const float PreviewSeconds = 1f;
         const float RetrySeconds = 2f;
         const int MaxRetries = 10;
+        const int ArtPadding = 12;           // cells of surroundings kept around the level in the picture
+        const float ArtDelaySeconds = 1f;    // let the run settle (spawn effects) before taking the picture
 
         static readonly MapPalette Palette = new MapPalette(
             ground: new Rgba(78, 92, 110),
@@ -48,18 +50,21 @@ namespace SpellBrigadeMinimap
         static readonly GroundProbe Probe = ProbeNavMesh;
 
         WalkableFlood flood;
-        float floodStarted, nextPreview, nextRetry;
+        CellClass[] classes;
+        float floodStarted, nextPreview, nextRetry, artDue;
         int retries, probes;
         double busyMs;
-        bool failed, radarLogged;
+        bool failed, radarLogged, artFailed;
 
         public BakedMap Map { get; private set; }
 
         public void Reset()
         {
             flood = null;
+            classes = null;
+            artDue = 0f;
             retries = 0;
-            failed = radarLogged = false;
+            failed = radarLogged = artFailed = false;
             Map?.Destroy();
             Map = null;
         }
@@ -84,6 +89,11 @@ namespace SpellBrigadeMinimap
 
                 if (!flood.HasWork)
                 {
+                    if (artDue > 0f && now >= artDue)
+                    {
+                        artDue = 0f;
+                        return PaintArt();
+                    }
                     if (flood.WalkableCount == 0) RetryOrGiveUp(now);
                     return false;
                 }
@@ -95,14 +105,16 @@ namespace SpellBrigadeMinimap
 
                 if (!flood.HasWork)
                 {
-                    bool changed = Replace(MapPainter.Paint(flood, MapPainter.Classify(flood), Palette, Padding));
+                    classes = MapPainter.Classify(flood);
+                    bool changed = Replace(MapPainter.Paint(flood, classes, Palette, Padding), FilterMode.Bilinear);
                     LogFinished(now);
+                    artDue = Mod.Settings.Style.Value == MapStyle.Pixelated && !artFailed ? now + ArtDelaySeconds : 0f;
                     return changed;
                 }
                 if (now >= nextPreview)
                 {
                     nextPreview = now + PreviewSeconds;
-                    return Replace(MapPainter.Paint(flood, null, Palette, Padding));
+                    return Replace(MapPainter.Paint(flood, null, Palette, Padding), FilterMode.Bilinear);
                 }
                 return false;
             }
@@ -130,13 +142,36 @@ namespace SpellBrigadeMinimap
             flood = null; // next Tick starts a fresh grid around the player
         }
 
-        bool Replace(PaintedMap painted)
+        /// <summary>Swaps the flat map for a pixel-art picture of the level. Falls back to the flat map on failure.</summary>
+        bool PaintArt()
+        {
+            if (classes == null || !MapPainter.TryCrop(flood, ArtPadding, out var crop)) return false;
+            try
+            {
+                var sw = Stopwatch.StartNew();
+                var art = LevelSnapshot.Capture(
+                    flood.OriginX + crop.X * CellSize, flood.OriginZ + crop.Y * CellSize,
+                    crop.Width, crop.Height, CellSize, flood.MaxHeight);
+                var painted = MapPainter.PaintArt(flood, classes, art, Palette, crop, Mod.Settings.HighlightObstacles.Value);
+                bool changed = Replace(painted, FilterMode.Point);
+                Mod.Log.LogInfo($"Captured level picture: {crop.Width} x {crop.Height} pixels in {sw.ElapsedMilliseconds} ms.");
+                return changed;
+            }
+            catch (Exception e)
+            {
+                artFailed = true;
+                LogOnce.Error("taking the level picture (keeping the flat map)", e);
+                return false;
+            }
+        }
+
+        bool Replace(PaintedMap painted, FilterMode filter)
         {
             if (painted == null) return false;
             var old = Map;
             Map = new BakedMap
             {
-                Texture = SpriteFactory.ToTexture(painted.Image, FilterMode.Bilinear, keepReadable: false),
+                Texture = SpriteFactory.ToTexture(painted.Image, filter, keepReadable: false),
                 OriginX = painted.OriginX,
                 OriginZ = painted.OriginZ,
                 WorldWidth = painted.WorldWidth,
