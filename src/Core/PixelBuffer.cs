@@ -66,6 +66,33 @@ namespace SpellBrigadeMinimap.Core
             return dst;
         }
 
+        /// <summary>
+        /// For each <paramref name="factor"/> x <paramref name="factor"/> block of an RGBA32 image rendered over a
+        /// flat <paramref name="key"/> colour, the share of pixels that differ from the key by more than
+        /// <paramref name="tolerance"/> in some channel (i.e. where something was drawn). Row 0 is the bottom.
+        /// </summary>
+        public static float[] CoverageOfNonKey(byte[] rgba, int width, int height, int factor, Rgba key, int tolerance)
+        {
+            if (factor < 1) throw new ArgumentOutOfRangeException(nameof(factor));
+            int w = width / factor, h = height / factor;
+            var cover = new float[w * h];
+            float n = factor * factor;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    int drawn = 0;
+                    for (int sy = 0; sy < factor; sy++)
+                        for (int sx = 0; sx < factor; sx++)
+                        {
+                            int i = ((y * factor + sy) * width + x * factor + sx) * 4;
+                            if (Math.Abs(rgba[i] - key.R) > tolerance || Math.Abs(rgba[i + 1] - key.G) > tolerance
+                                || Math.Abs(rgba[i + 2] - key.B) > tolerance) drawn++;
+                        }
+                    cover[y * w + x] = drawn / n;
+                }
+            return cover;
+        }
+
         /// <summary>Sets every pixel whose center lies within <paramref name="radius"/> of (cx, cy).</summary>
         public void FillCircle(float cx, float cy, float radius, Rgba c)
         {

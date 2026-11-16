@@ -74,6 +74,22 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(2, dst.Height, "height");
         }
 
+        public static void CoverageCountsPixelsThatDifferFromTheKey()
+        {
+            // 4x2 source, factor 2: left block has one of four pixels drawn, right block all four.
+            var key = new Rgba(255, 0, 255);
+            var src = new byte[4 * 2 * 4];
+            for (int y = 0; y < 2; y++)
+                for (int x = 0; x < 4; x++)
+                    Put(src, 4, x, y, 255, 0, 255, 255);
+            Put(src, 4, 1, 1, 90, 90, 90, 255);
+            for (int y = 0; y < 2; y++) { Put(src, 4, 2, y, 10, 10, 10, 255); Put(src, 4, 3, y, 250, 5, 250, 255); }
+            var cover = PixelBuffer.CoverageOfNonKey(src, 4, 2, 2, key, 24);
+            Check.Equal(2, cover.Length, "one value per block");
+            Check.Near(0.25f, cover[0], "a quarter drawn");
+            Check.Near(0.5f, cover[1], "near-key pixels don't count");
+        }
+
         public static void ClearResetsPixels()
         {
             var b = new PixelBuffer(3, 3);

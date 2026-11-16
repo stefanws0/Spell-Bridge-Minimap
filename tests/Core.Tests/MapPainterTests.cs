@@ -97,19 +97,42 @@ namespace SpellBrigadeMinimap.Tests
             Check.True(!MapPainter.TryCrop(new WalkableFlood(10, 1f, 0f, 0f), 3, out _), "nothing walkable");
         }
 
-        public static void ArtShowsThroughOnGroundAndObstacles()
+        public static void ArtShowsOnGroundAndObstaclesAreSolid()
         {
             var map = ArtMap(highlight: true);
             Check.Near(-13f, map.OriginX, "origin x");
             Check.Equal(ArtColor, PixelAt(map, -5f, 0f), "ground");
-            Check.Equal(ArtColor, PixelAt(map, 5.2f, 0.2f), "middle of an obstacle");
+            Check.Equal(Palette.ObstacleEdge, PixelAt(map, 5.2f, 0.2f), "middle of an obstacle is filled");
             Check.Equal(Palette.GroundEdge, PixelAt(map, 9.2f, 0.2f), "arena edge is a solid line");
         }
 
-        public static void ArtObstacleRimFollowsTheHighlightSetting()
+        public static void ObstacleFillFollowsTheHighlightSetting()
         {
-            Check.Equal(Palette.ObstacleEdge, PixelAt(ArtMap(highlight: true), 2.2f, 0.2f), "highlighted rim");
+            Check.Equal(Palette.ObstacleEdge, PixelAt(ArtMap(highlight: true), 2.2f, 0.2f), "filled when on");
             Check.Equal(ArtColor, PixelAt(ArtMap(highlight: false), 2.2f, 0.2f), "plain art when off");
+            Check.Equal(ArtColor, PixelAt(ArtMap(highlight: false), 5.2f, 0.2f), "plain art when off (middle)");
+        }
+
+        public static void RoadsAreDrawnOnGroundOnly()
+        {
+            var f = Island();
+            MapPainter.TryCrop(f, 3, out var crop);
+            var art = new PixelBuffer(crop.Width, crop.Height);
+            for (int y = 0; y < art.Height; y++)
+                for (int x = 0; x < art.Width; x++)
+                    art.SetPixel(x, y, ArtColor);
+            var roads = new float[crop.Width * crop.Height];
+            int RoadIndex(float wx, float wz) => (int)Math.Floor(wz - f.OriginZ - crop.Y) * crop.Width + (int)Math.Floor(wx - f.OriginX - crop.X);
+            roads[RoadIndex(-5f, 0f)] = 1f;     // ground
+            roads[RoadIndex(-4f, 0f)] = 0.1f;   // ground, barely touched
+            roads[RoadIndex(5.2f, 0.2f)] = 1f;  // inside an obstacle
+
+            var road = new Rgba(200, 190, 170);
+            var palette = new MapPalette(Palette.Ground, Palette.GroundEdge, Palette.Obstacle, Palette.ObstacleEdge, road);
+            var map = MapPainter.PaintArt(f, MapPainter.Classify(f), art, palette, crop, true, roads);
+            Check.Equal(new Rgba(180, 182, 146), PixelAt(map, -5f, 0f), "road blended 80% over the art");
+            Check.Equal(ArtColor, PixelAt(map, -4f, 0f), "too little road coverage");
+            Check.Equal(Palette.ObstacleEdge, PixelAt(map, 5.2f, 0.2f), "obstacles stay solid");
         }
 
         public static void ArtOutsideTheLevelIsEmptyApartFromADarkEdge()

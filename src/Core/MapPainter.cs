@@ -7,14 +7,15 @@ namespace SpellBrigadeMinimap.Core
 
     public readonly struct MapPalette
     {
-        public readonly Rgba Ground, GroundEdge, Obstacle, ObstacleEdge;
+        public readonly Rgba Ground, GroundEdge, Obstacle, ObstacleEdge, Road;
 
-        public MapPalette(Rgba ground, Rgba groundEdge, Rgba obstacle, Rgba obstacleEdge)
+        public MapPalette(Rgba ground, Rgba groundEdge, Rgba obstacle, Rgba obstacleEdge, Rgba road = default)
         {
             Ground = ground;
             GroundEdge = groundEdge;
             Obstacle = obstacle;
             ObstacleEdge = obstacleEdge;
+            Road = road;
         }
     }
 
@@ -47,6 +48,15 @@ namespace SpellBrigadeMinimap.Core
 
     public static class MapPainter
     {
+        /// <summary>A cell counts as road when at least this share of it is covered by road.</summary>
+        public const float RoadCoverage = 0.3f;
+
+        static Rgba Blend(Rgba a, Rgba b, float t) => new Rgba(
+            (byte)Math.Round(a.R + (b.R - a.R) * t),
+            (byte)Math.Round(a.G + (b.G - a.G) * t),
+            (byte)Math.Round(a.B + (b.B - a.B) * t),
+            255);
+
         /// <summary>The walkable area's bounding box grown by <paramref name="pad"/> cells, clipped to the grid.</summary>
         public static bool TryCrop(WalkableFlood f, int pad, out CropRect crop)
         {
@@ -61,12 +71,17 @@ namespace SpellBrigadeMinimap.Core
 
         /// <summary>
         /// Composes captured level art (one pixel per cell of <paramref name="crop"/>) with the cell classes:
-        /// ground and obstacles show the art, ground next to the outside is drawn as a solid edge line,
-        /// obstacle rims get the obstacle edge colour when <paramref name="highlightObstacles"/> is on, the cells
-        /// just outside the arena edge get the obstacle edge colour too, and the rest of the outside is transparent.
+        /// ground shows the art, with roads (cells whose <paramref name="roads"/> coverage is at least
+        /// <see cref="RoadCoverage"/>) blended 80% toward the road colour; ground next to the outside is a solid edge
+        /// line; obstacles are filled with the obstacle edge colour when <paramref name="highlightObstacles"/> is on
+        /// (plain art when off); the cells just outside the arena edge get the obstacle edge colour too, and the rest
+        /// of the outside is transparent.
         /// </summary>
-        public static PaintedMap PaintArt(WalkableFlood f, CellClass[] cls, PixelBuffer art, in MapPalette palette, CropRect crop, bool highlightObstacles)
+        public static PaintedMap PaintArt(WalkableFlood f, CellClass[] cls, PixelBuffer art, in MapPalette palette, CropRect crop,
+            bool highlightObstacles, float[] roads = null)
         {
+            if (roads != null && roads.Length != crop.Width * crop.Height)
+                throw new ArgumentException("roads must be one value per cell of the crop", nameof(roads));
             if (art.Width != crop.Width || art.Height != crop.Height)
                 throw new ArgumentException("art must be one pixel per cell of the crop", nameof(art));
             int n = f.Size;
@@ -87,10 +102,12 @@ namespace SpellBrigadeMinimap.Core
                     switch (At(cx, cy))
                     {
                         case CellClass.Walkable:
-                            c = Touches(cx, cy, CellClass.Outside) ? palette.GroundEdge : a;
+                            if (Touches(cx, cy, CellClass.Outside)) c = palette.GroundEdge;
+                            else if (roads != null && palette.Road.A > 0 && roads[y * crop.Width + x] >= RoadCoverage) c = Blend(a, palette.Road, 0.8f);
+                            else c = a;
                             break;
                         case CellClass.Obstacle:
-                            c = highlightObstacles && Touches(cx, cy, CellClass.Walkable) ? palette.ObstacleEdge : a;
+                            c = highlightObstacles ? palette.ObstacleEdge : a;
                             break;
                         default:
                             // A dark line just outside the arena edge, like the outlines on obstacles.
