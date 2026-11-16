@@ -41,6 +41,8 @@ namespace SpellBrigadeMinimap
 
         public bool HasCenter;
         public NVec2 Center;
+        /// <summary>The local player's ground height, used to seed NavMesh mapping.</summary>
+        public float CenterY;
         public NVec2 Facing = new NVec2(0f, 1f);
         public readonly List<PlayerDot> Players = new List<PlayerDot>();
         public readonly List<EnemyDot> Enemies = new List<EnemyDot>();
@@ -128,6 +130,7 @@ namespace SpellBrigadeMinimap
                     {
                         found = true;
                         Center = new NVec2(pos.x, pos.z);
+                        CenterY = pos.y;
                         var vt = p.visualTransform;
                         Vector3 f = (vt != null ? vt : p.transform).forward;
                         if (f.x * f.x + f.z * f.z > 1e-4f) Facing = new NVec2(f.x, f.z);
@@ -151,6 +154,7 @@ namespace SpellBrigadeMinimap
                         {
                             found = true;
                             Center = new NVec2(pos.x, pos.z);
+                            CenterY = pos.y;
                         }
                     }
                     else

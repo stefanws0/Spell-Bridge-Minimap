@@ -28,7 +28,10 @@ foreach (var th in md.TypeDefinitions)
     {
         var f = md.GetFieldDefinition(fh);
         var n = md.GetString(f.Name);
-        if (n.StartsWith("NativeFieldInfoPtr") || n.StartsWith("NativeMethodInfoPtr")) continue;
+        // Il2CppInterop's per-member pointer fields: hidden unless the member regex asks for them.
+        // A method with a NativeMethodInfoPtr_ field exists in the game build; one without was "unstripped".
+        bool native = n.StartsWith("NativeFieldInfoPtr") || n.StartsWith("NativeMethodInfoPtr");
+        if (native && (memRx == null || !memRx.IsMatch(n))) continue;
         if (memRx != null && !memRx.IsMatch(n)) continue;
         var st = (f.Attributes & FieldAttributes.Static) != 0 ? "static " : "";
         Console.WriteLine($"  F {st}{f.DecodeSignature(prov, null)} {n}");

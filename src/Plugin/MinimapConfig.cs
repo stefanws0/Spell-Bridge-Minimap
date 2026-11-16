@@ -21,7 +21,7 @@ namespace SpellBrigadeMinimap
             ZoomInKey = f.Bind("General", "ZoomInKey", "Equals", "Key that zooms in.");
             ZoomOutKey = f.Bind("General", "ZoomOutKey", "Minus", "Key that zooms out.");
 
-            Corner = f.Bind("Layout", "Corner", ScreenCorner.TopRight, "Screen corner for the minimap.");
+            Corner = f.Bind("Layout", "Corner", ScreenCorner.BottomRight, "Screen corner for the minimap.");
             Size = f.Bind("Layout", "Size", 220f, new ConfigDescription("Side length in pixels at 1080p.", new AcceptableValueRange<float>(100f, 600f)));
             Margin = f.Bind("Layout", "Margin", 16f, new ConfigDescription("Gap from the screen edges in pixels at 1080p.", new AcceptableValueRange<float>(0f, 200f)));
             Opacity = f.Bind("Layout", "Opacity", 0.85f, new ConfigDescription("Opacity of the whole minimap.", new AcceptableValueRange<float>(0.2f, 1f)));

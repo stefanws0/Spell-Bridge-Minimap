@@ -5,26 +5,21 @@ using UnityEngine.InputSystem;
 
 namespace SpellBrigadeMinimap
 {
-    /// <summary>Drives the minimap each frame: keys, run detection, map baking, scanning and drawing.</summary>
+    /// <summary>Drives the minimap each frame: keys, run detection, level mapping, scanning and drawing.</summary>
     public class MinimapBehaviour : MonoBehaviour
     {
         public MinimapBehaviour(IntPtr ptr) : base(ptr) { }
 
-        const int MaxBakeTries = 10;
-        const float BakeRetrySeconds = 2f;
-        const float RebakeCooldownSeconds = 30f;
-        const float OutsideMapPad = 10f;
         const float ZoomStep = 1.25f;
 
         MinimapView view;
         readonly WorldScanner scanner = new WorldScanner();
+        readonly NavMeshMapper mapper = new NavMeshMapper();
         readonly MoreEventsBridge bridge = new MoreEventsBridge();
         readonly List<EventMarker> markers = new List<EventMarker>();
-        BakedMap map;
         IntPtr runPtr;
-        int bakeTries;
-        float nextBake, radius;
-        bool hidden, radarLogged;
+        float radius;
+        bool hidden;
 
         void Start()
         {
@@ -74,7 +69,7 @@ namespace SpellBrigadeMinimap
                 view.SetVisible(false);
                 return;
             }
-            TryBake(Time.unscaledTime);
+            if (mapper.Tick(Time.unscaledTime, scanner.Center, scanner.CenterY)) view.SetMap(mapper.Map);
 
             if (cfg.ShowMoreEvents.Value) bridge.Collect(markers);
             else markers.Clear();
@@ -88,9 +83,6 @@ namespace SpellBrigadeMinimap
             EndRun();
             runPtr = rm.Pointer;
             scanner.ResetRun(rm);
-            bakeTries = 0;
-            nextBake = 0f;
-            radarLogged = false;
             var cfg = Mod.Settings;
             radius = Mathf.Clamp(cfg.Radius.Value, cfg.MinRadius.Value, cfg.MaxRadius.Value);
         }
@@ -99,36 +91,7 @@ namespace SpellBrigadeMinimap
         {
             runPtr = IntPtr.Zero;
             view.SetMap(null);
-            map?.Destroy();
-            map = null;
-        }
-
-        void TryBake(float now)
-        {
-            bool needed = map == null
-                ? bakeTries < MaxBakeTries
-                : !map.Covers(scanner.Center.X, scanner.Center.Y, OutsideMapPad);
-            if (!needed || now < nextBake) return;
-
-            bakeTries++;
-            nextBake = now + (map == null ? BakeRetrySeconds : RebakeCooldownSeconds);
-            BakedMap fresh = null;
-            try { fresh = MapBaker.Bake(); }
-            catch (Exception e) { LogOnce.Error("reading the NavMesh", e); }
-
-            if (fresh != null)
-            {
-                view.SetMap(fresh);
-                map?.Destroy();
-                map = fresh;
-                bakeTries = 0;
-                Mod.Log.LogInfo($"Baked level layout: {fresh.TriangleCount} triangles, {fresh.WorldWidth:0} x {fresh.WorldHeight:0} world units.");
-            }
-            else if (map == null && bakeTries >= MaxBakeTries && !radarLogged)
-            {
-                radarLogged = true;
-                Mod.Log.LogWarning("No NavMesh found for this level; showing radar mode (dots without a layout).");
-            }
+            mapper.Reset();
         }
 
         void HandleKeys(MinimapConfig cfg)
