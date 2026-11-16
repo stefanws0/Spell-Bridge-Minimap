@@ -63,7 +63,7 @@ namespace SpellBrigadeMinimap.Core
         /// Composes captured level art (one pixel per cell of <paramref name="crop"/>) with the cell classes:
         /// ground and obstacles show the art, ground next to the outside is blended halfway to the edge colour,
         /// obstacle rims get the obstacle edge colour when <paramref name="highlightObstacles"/> is on, and
-        /// everything outside the level is dimmed to 45%.
+        /// everything outside the level is left transparent.
         /// </summary>
         public static PaintedMap PaintArt(WalkableFlood f, CellClass[] cls, PixelBuffer art, in MapPalette palette, CropRect crop, bool highlightObstacles)
         {
@@ -93,7 +93,7 @@ namespace SpellBrigadeMinimap.Core
                             c = highlightObstacles && Touches(cx, cy, CellClass.Walkable) ? palette.ObstacleEdge : a;
                             break;
                         default:
-                            c = new Rgba((byte)(a.R * 45 / 100), (byte)(a.G * 45 / 100), (byte)(a.B * 45 / 100), 255);
+                            c = Rgba.Clear;
                             break;
                     }
                     img.SetPixel(x, y, c);

@@ -69,6 +69,19 @@ namespace SpellBrigadeMinimap.Core
             return i < 0 ? CellState.Blocked : states[i];
         }
 
+        /// <summary>Ground height of the walkable cell containing the point; false if that cell isn't walkable.</summary>
+        public bool TryGroundHeight(float x, float z, out float y)
+        {
+            int i = IndexOf(x, z);
+            if (i < 0 || states[i] != CellState.Walkable)
+            {
+                y = 0f;
+                return false;
+            }
+            y = heights[i];
+            return true;
+        }
+
         /// <summary>Queues the unexplored cells in the 3x3 block around a point, searching near height <paramref name="y"/>.</summary>
         public void Seed(float x, float z, float y)
         {

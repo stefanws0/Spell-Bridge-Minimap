@@ -81,6 +81,9 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(CellState.Walkable, f.StateAt(12.2f, 0.2f), "far up the ramp");
             Check.Equal(CellState.Walkable, f.StateAt(-12.2f, 0.2f), "far down the ramp");
             Check.Near(7.25f, f.MaxHeight, "highest ground found (cell center x = 14.5)");
+            Check.True(f.TryGroundHeight(12.2f, 0.2f, out float y), "ground under a walkable cell");
+            Check.Near(6.25f, y, "its height (cell center x = 12.5)");
+            Check.True(!f.TryGroundHeight(12.2f, 5.2f, out _), "no ground off the ramp");
         }
 
         public static void SeedOutsideTheGridDoesNothing()
