@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using SpellBrigadeMinimap.Core;
 using Unity.Netcode;
 using UnityEngine;
 using NVec2 = System.Numerics.Vector2;
@@ -17,7 +18,7 @@ namespace SpellBrigadeMinimap
     internal struct EnemyDot
     {
         public NVec2 Pos;
-        public bool Elite;
+        public EnemyRank Rank;
     }
 
     internal enum PoiKind { Objective, Boss, Downed, Danger, Pickup, Health }
@@ -94,9 +95,27 @@ namespace SpellBrigadeMinimap
         float nextEnemyScan, nextPoiScan, nextFeatureScan;
         bool featuresLogged;
 
+        /// <summary>Bosses right now (drawn as their own icon, not a dot).</summary>
+        public readonly List<NVec2> Bosses = new List<NVec2>();
+        EnemyRanker ranker = new EnemyRanker(3f, SwarmMinCount);
+        readonly Dictionary<int, EnemyTypeInfo> typeInfo = new Dictionary<int, EnemyTypeInfo>();
+        static readonly HashSet<int> loggedTypes = new HashSet<int>();
+        readonly List<(Vector3 pos, EnemyTypeInfo info)> scanned = new List<(Vector3, EnemyTypeInfo)>();
+        const int SwarmMinCount = 5;
+
+        sealed class EnemyTypeInfo
+        {
+            public int Type;
+            public float BaseHealth;
+            public bool Boss, MiniBoss;
+        }
+
         public void ResetRun(RunManager rm)
         {
             eliteTypes.Clear();
+            Bosses.Clear();
+            typeInfo.Clear();
+            ranker = new EnemyRanker(Mod.Settings.BigEnemyHealth.Value, SwarmMinCount);
             Players.Clear();
             Enemies.Clear();
             Pois.Clear();
@@ -250,23 +269,63 @@ namespace SpellBrigadeMinimap
             return DefaultTeammate;
         }
 
+        /// <summary>
+        /// Enemies with their rank: bosses (the game's own boss flag), mini-bosses (elite types, the Hydra's
+        /// healers, the Hoarder), big (base health several times the swarm's) and small.
+        /// </summary>
         void ScanEnemies()
         {
             Enemies.Clear();
+            Bosses.Clear();
             var all = Enemy.AllEnemies;
             if (all == null) return;
             int n = Math.Min(all.Count, MaxEnemies);
+            scanned.Clear();
             for (int i = 0; i < n; i++)
             {
                 var e = all[i];
                 if (e == null || !e.isActiveAndEnabled) continue;
-                Vector3 pos = e.transform.position;
-                Enemies.Add(new EnemyDot
-                {
-                    Pos = new NVec2(pos.x, pos.z),
-                    Elite = eliteTypes.Contains((int)e.EnemyType),
-                });
+                var info = InfoFor(e);
+                ranker.Observe(info.Type, info.BaseHealth);
+                scanned.Add((e.transform.position, info));
             }
+            float swarmBefore = ranker.SwarmHealth;
+            ranker.EndScan();
+            if (ranker.SwarmHealth != swarmBefore)
+                Mod.Log.LogInfo($"Swarm enemies have {ranker.SwarmHealth:0.#} base health; {Mod.Settings.BigEnemyHealth.Value:0.#}x that or more is drawn as a big enemy.");
+
+            foreach (var (pos, info) in scanned)
+            {
+                var p = new NVec2(pos.x, pos.z);
+                var rank = ranker.Rank(info.BaseHealth, info.Boss, info.MiniBoss);
+                if (rank == EnemyRank.Boss) Bosses.Add(p);
+                else Enemies.Add(new EnemyDot { Pos = p, Rank = rank });
+            }
+        }
+
+        EnemyTypeInfo InfoFor(Enemy e)
+        {
+            var type = e.EnemyType;
+            int key = (int)type;
+            if (typeInfo.TryGetValue(key, out var info)) return info;
+            info = new EnemyTypeInfo { Type = key };
+            try
+            {
+                var hc = e.GetComponent<EnemyHealthContainer>() ?? e.GetComponentInChildren<EnemyHealthContainer>();
+                if (hc != null)
+                {
+                    info.BaseHealth = hc.maxHealth;
+                    info.Boss = hc.isBoss;
+                }
+            }
+            catch (Exception ex) { LogOnce.Error("reading an enemy's health", ex); }
+            string name = type.ToString();
+            info.MiniBoss = eliteTypes.Contains(key) || type == EnemyType.HydraHealer || type == EnemyType.Hoarder
+                || name.StartsWith("Elite", StringComparison.Ordinal);
+            typeInfo[key] = info;
+            if (loggedTypes.Add(key))
+                Mod.Log.LogInfo($"Enemy {name}: base health {info.BaseHealth:0.#}{(info.Boss ? ", boss" : "")}{(info.MiniBoss ? ", mini-boss" : "")}.");
+            return info;
         }
 
         void ScanPois()

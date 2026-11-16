@@ -16,7 +16,7 @@ namespace SpellBrigadeMinimap
         public readonly ConfigEntry<bool> HighlightObstacles, TrimOutsideArena, PaintFromGameView, LiftDarkGround;
         public readonly ConfigEntry<string> ObstacleKeywords, TintKeywords;
         public readonly ConfigEntry<float> Size, Margin, BottomOffset, Opacity;
-        public readonly ConfigEntry<float> Radius, MinRadius, MaxRadius;
+        public readonly ConfigEntry<float> Radius, MinRadius, MaxRadius, BigEnemyHealth;
         public readonly ConfigEntry<bool> RotateWithCamera;
         public readonly ConfigEntry<bool> ShowEnemies, ShowObjectives, ShowPickups, ShowTeammates, ShowMoreEvents, ShowMapFeatures;
         public readonly ConfigEntry<bool> HideUndiscoveredObjectives, SaveDebugImages;
@@ -53,7 +53,10 @@ namespace SpellBrigadeMinimap
             MaxRadius = f.Bind("View", "MaxRadius", 120f, new ConfigDescription("Farthest zoom (world units).", new AcceptableValueRange<float>(5f, 1000f)));
             RotateWithCamera = f.Bind("View", "RotateWithCamera", true, "Turn the map so up on the minimap is up on screen. Off = world-fixed.");
 
-            ShowEnemies = f.Bind("Layers", "ShowEnemies", true, "Enemy dots (elites larger and orange).");
+            ShowEnemies = f.Bind("Layers", "ShowEnemies", true, "Enemy dots: red for small enemies, orange for bigger ones, purple for mini-bosses (elites, the Hydra's healers, the Hoarder); bosses get their own icon.");
+            BigEnemyHealth = f.Bind("Layers", "BigEnemyHealth", 3f, new ConfigDescription(
+                "An enemy is drawn as a bigger (orange) one when its base health is at least this many times that of the swarm (the weakest common enemy).",
+                new AcceptableValueRange<float>(1.5f, 50f)));
             ShowObjectives = f.Bind("Layers", "ShowObjectives", true, "Objectives, the boss, downed teammates and danger pings.");
             ShowPickups = f.Bind("Layers", "ShowPickups", true, "Artifact, health and magnet pickups the game points at.");
             ShowTeammates = f.Bind("Layers", "ShowTeammates", true, "Other players.");

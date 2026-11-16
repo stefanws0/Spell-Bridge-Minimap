@@ -10,7 +10,11 @@ namespace SpellBrigadeMinimap
     internal sealed class MinimapView
     {
         const int DotTextureSize = 192;
-        const float DotRadius = 1.95f, EliteRadius = 3.3f, DotOutline = 1.2f;   // texels
+        const float DotOutline = 1.2f;   // texels
+        // Per EnemyRank (Small, Big, MiniBoss): radius in texels and colour.
+        static readonly float[] RankRadius = { 1.85f, 2.6f, 3.3f };
+        static readonly Rgba[] RankColor = { new Rgba(235, 64, 52), new Rgba(255, 150, 40), new Rgba(180, 90, 255) };
+        const float BossSize = 26f;
         static readonly Rgba EnemyOutline = new Rgba(20, 20, 22, 235);
         const float SquareBorder = 2f;
         static readonly Color FrameColor = new Color(0.85f, 0.88f, 0.95f, 0.9f);
@@ -18,8 +22,6 @@ namespace SpellBrigadeMinimap
         static readonly Color BadgeColor = new Color(0.08f, 0.08f, 0.09f, 0.95f);
         static readonly Color Cream = new Color(253f / 255f, 248f / 255f, 206f / 255f, 1f);
         static readonly Color HealthColor = new Color(0.95f, 0.25f, 0.3f, 1f);
-        static readonly Rgba EnemyColor = new Rgba(235, 64, 52);
-        static readonly Rgba EliteColor = new Rgba(255, 165, 40);
         static readonly Color ObjectiveColor = new Color(1f, 0.85f, 0.3f, 1f);
         static readonly Color BossColor = new Color(0.8f, 0.2f, 1f, 1f);
         static readonly Color DownedColor = new Color(1f, 0.35f, 0.35f, 1f);
@@ -40,9 +42,9 @@ namespace SpellBrigadeMinimap
         readonly IconPool zones, icons;
         readonly Image you;
         readonly PixelBuffer dotPixels = new PixelBuffer(DotTextureSize, DotTextureSize);
-        readonly List<(float x, float y, bool elite)> dotSpots = new List<(float, float, bool)>();
+        readonly List<(float x, float y, int rank)> dotSpots = new List<(float, float, int)>();
         readonly Texture2D dotTexture;
-        readonly Sprite disc, ring, arrow, diamond, roundShape, badgeRing, burst, burstErupting, burstSpent, portal, tornado;
+        readonly Sprite disc, ring, arrow, diamond, roundShape, badgeRing, burst, burstErupting, burstSpent, portal, tornado, boss;
 
         BakedMap map;
         bool visible = true, dotsEmpty, round;
@@ -65,6 +67,7 @@ namespace SpellBrigadeMinimap
             burstSpent = SpriteFactory.ToSprite(ShapeSprites.Burst(48, new Rgba(150, 152, 158), new Rgba(112, 114, 120)));
             portal = SpriteFactory.ToSprite(ShapeSprites.Portal(48));
             tornado = SpriteFactory.ToSprite(ShapeSprites.Tornado(48));
+            boss = SpriteFactory.ToSprite(ShapeSprites.BossSkull(64, new Rgba(222, 58, 58)));
 
             root = new GameObject("SpellBrigadeMinimap");
             Object.DontDestroyOnLoad(root);
@@ -180,7 +183,11 @@ namespace SpellBrigadeMinimap
                         DrawFeature(icons, burstErupting, Color.white, g.Pos, view, EruptingGeyserSize,
                             new Vector2(Mathf.Sin(time * 53f) * 1.3f, Mathf.Cos(time * 61f) * 1.1f), Mathf.Sin(time * 41f) * 7f);
             }
-            foreach (var poi in s.Pois) DrawPoi(poi, view, discovery);
+            foreach (var poi in s.Pois)
+                if (!(poi.Kind == PoiKind.Boss && s.Bosses.Count > 0 && cfg.ShowEnemies.Value)) // the boss icon below replaces the game's pointer
+                    DrawPoi(poi, view, discovery);
+            if (cfg.ShowEnemies.Value)
+                foreach (var b in s.Bosses) DrawPoint(boss, Color.white, MapMath.WorldToPanel(view, b), BossSize, half, clamp: true);
             if (cfg.ShowMoreEvents.Value)
                 foreach (var m in markers)
                     if (!m.Zone) DrawPoint(diamond, m.Color, MapMath.WorldToPanel(view, m.Pos), 16f, half, clamp: true);
@@ -213,11 +220,14 @@ namespace SpellBrigadeMinimap
                     any = true;
                     float x = (p.X + view.HalfSize) * toPx;
                     float y = (p.Y + view.HalfSize) * toPx;
-                    dotSpots.Add((x, y, e.Elite));
-                    dotPixels.FillCircle(x, y, (e.Elite ? EliteRadius : DotRadius) + DotOutline, EnemyOutline);
+                    int rank = Mathf.Min((int)e.Rank, RankRadius.Length - 1);
+                    dotSpots.Add((x, y, rank));
+                    dotPixels.FillCircle(x, y, RankRadius[rank] + DotOutline, EnemyOutline);
                 }
-                foreach (var (x, y, elite) in dotSpots)
-                    dotPixels.FillCircle(x, y, elite ? EliteRadius : DotRadius, elite ? EliteColor : EnemyColor);
+                // Small first, mini-bosses last, so the important ones stay on top in a crowd.
+                for (int rank = 0; rank < RankRadius.Length; rank++)
+                    foreach (var (x, y, r) in dotSpots)
+                        if (r == rank) dotPixels.FillCircle(x, y, RankRadius[rank], RankColor[rank]);
             }
             if (!any && dotsEmpty) return; // already blank on the GPU
             SpriteFactory.Upload(dotTexture, dotPixels, keepReadable: true);

@@ -118,6 +118,41 @@ namespace SpellBrigadeMinimap.Core
             return new Rgba(255, 255, 255, 90);
         });
 
+        static readonly Rgba Bone = new Rgba(242, 236, 220, 255);
+        static readonly Rgba BadgeDark = new Rgba(24, 24, 26, 255);
+
+        /// <summary>
+        /// A boss: a bone-white skull on a dark round badge with a coloured ring (the HUD's badge style, like the
+        /// health-potion badge). Drawn in its own colours.
+        /// </summary>
+        public static PixelBuffer BossSkull(int size, Rgba ring) => Render(size, (u, v) =>
+        {
+            float d = Distance(u, v);
+            if (d > 0.48f) return Rgba.Clear;
+            if (d > 0.465f) return Border;
+            if (d > 0.4f) return ring;
+            float su = 0.5f + (u - 0.5f) / 0.62f, sv = 0.5f + (v - 0.5f) / 0.62f + 0.02f; // skull at 62%, centered
+            if (InSkull(su, sv)) return SkullHole(su, sv) ? BadgeDark : Bone;
+            return BadgeDark;
+        });
+
+        static bool InSkull(float u, float v)
+        {
+            if (Distance(u, v - 0.08f) < 0.3f) return true;                    // cranium, centered at (0.5, 0.58)
+            float cx = Math.Max(0.4f, Math.Min(0.6f, u)), cy = Math.Max(0.27f, Math.Min(0.39f, v));
+            float dx = u - cx, dy = v - cy;
+            return dx * dx + dy * dy <= 0.07f * 0.07f;                          // jaw: rounded box 0.33-0.67 x 0.2-0.46
+        }
+
+        static bool SkullHole(float u, float v)
+        {
+            float lx = u - 0.385f, rx = u - 0.615f, ey = v - 0.55f;
+            if (lx * lx + ey * ey < 0.085f * 0.085f || rx * rx + ey * ey < 0.085f * 0.085f) return true; // eyes
+            if (InTriangle(u, v, 0.5f, 0.45f, 0.455f, 0.37f, 0.545f, 0.37f)) return true;                  // nose
+            return v > 0.21f && v < 0.31f
+                && (Math.Abs(u - 0.44f) < 0.015f || Math.Abs(u - 0.5f) < 0.015f || Math.Abs(u - 0.56f) < 0.015f); // teeth
+        }
+
         static readonly Rgba WindGrey = new Rgba(200, 204, 212, 255);
 
         /// <summary>A tornado: a light grey funnel, wide at the top, with a dark border and dark swirl lines.</summary>

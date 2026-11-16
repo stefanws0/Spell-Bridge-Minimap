@@ -58,6 +58,17 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(new Rgba(150, 152, 158), img.GetPixel(39, 49), "grey ray");
         }
 
+        public static void BossSkullIsAWhiteSkullOnADarkBadgeWithARing()
+        {
+            var img = ShapeSprites.BossSkull(64, new Rgba(222, 58, 58));
+            Check.Equal((byte)0, img.GetPixel(2, 2).A, "clear corner");
+            Check.Equal(new Rgba(222, 58, 58), img.GetPixel(32, 59), "red ring");
+            Rgba cranium = img.GetPixel(32, 42);
+            Check.True(cranium.R > 220 && cranium.G > 220, $"bone-white skull: {cranium}");
+            Rgba eye = img.GetPixel(27, 33), badge = img.GetPixel(10, 32);
+            Check.True(eye.R < 40 && badge.R < 40, $"dark eye {eye} and badge {badge}");
+        }
+
         public static void PortalIsAnOvalRingWithAFaintCenter()
         {
             var img = ShapeSprites.Portal(64);
