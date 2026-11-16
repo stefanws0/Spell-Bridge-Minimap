@@ -49,7 +49,7 @@ namespace SpellBrigadeMinimap.Tests
 
         public static void Near(float expected, float actual, string what, float tolerance = 1e-3f)
         {
-            if (Math.Abs(expected - actual) > tolerance)
+            if (!(Math.Abs(expected - actual) <= tolerance))
                 throw new Exception($"{what}: expected {expected}, got {actual}");
         }
 
