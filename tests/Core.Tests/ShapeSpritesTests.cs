@@ -51,6 +51,13 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal((byte)0, img.GetPixel(32, 58).A, "clear between two rays");
         }
 
+        public static void BurstCanBeDrawnInOtherColours()
+        {
+            var img = ShapeSprites.Burst(64, new Rgba(150, 152, 158), new Rgba(112, 114, 120));
+            Check.Equal(new Rgba(112, 114, 120), img.GetPixel(32, 32), "grey center");
+            Check.Equal(new Rgba(150, 152, 158), img.GetPixel(39, 49), "grey ray");
+        }
+
         public static void PortalIsAnOvalRingWithAFaintCenter()
         {
             var img = ShapeSprites.Portal(64);

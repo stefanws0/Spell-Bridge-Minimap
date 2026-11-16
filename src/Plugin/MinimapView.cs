@@ -9,7 +9,9 @@ namespace SpellBrigadeMinimap
     /// <summary>Owns the minimap's UI objects and draws one frame from scanned data.</summary>
     internal sealed class MinimapView
     {
-        const int DotTextureSize = 128;
+        const int DotTextureSize = 192;
+        const float DotRadius = 1.95f, EliteRadius = 3.3f, DotOutline = 1.2f;   // texels
+        static readonly Rgba EnemyOutline = new Rgba(20, 20, 22, 235);
         const float SquareBorder = 2f;
         static readonly Color FrameColor = new Color(0.85f, 0.88f, 0.95f, 0.9f);
         static readonly Color Background = new Color(0.09f, 0.09f, 0.1f, 0.92f);
@@ -25,7 +27,7 @@ namespace SpellBrigadeMinimap
         static readonly Color PickupColor = new Color(0.5f, 1f, 0.6f, 1f);
         static readonly Color PortalOpen = new Color(0.62f, 0.99f, 0.98f, 1f);     // the portals' cyan swirl in game
         static readonly Color PortalClosed = new Color(0.62f, 0.99f, 0.98f, 0.35f);
-        const float TrapSize = 16f, PortalSize = 18f, TornadoSize = 18f;
+        const float GeyserSize = 16f, SpentGeyserSize = 14f, EruptingGeyserSize = 19f, PortalSize = 18f, TornadoSize = 18f;
 
         readonly MinimapConfig cfg;
         readonly GameObject root;
@@ -38,8 +40,9 @@ namespace SpellBrigadeMinimap
         readonly IconPool zones, icons;
         readonly Image you;
         readonly PixelBuffer dotPixels = new PixelBuffer(DotTextureSize, DotTextureSize);
+        readonly List<(float x, float y, bool elite)> dotSpots = new List<(float, float, bool)>();
         readonly Texture2D dotTexture;
-        readonly Sprite disc, ring, arrow, diamond, roundShape, badgeRing, burst, portal, tornado;
+        readonly Sprite disc, ring, arrow, diamond, roundShape, badgeRing, burst, burstErupting, burstSpent, portal, tornado;
 
         BakedMap map;
         bool visible = true, dotsEmpty, round;
@@ -58,6 +61,8 @@ namespace SpellBrigadeMinimap
             roundShape = SpriteFactory.ToSprite(ShapeSprites.Disc(256, 0f));
             badgeRing = SpriteFactory.ToSprite(ShapeSprites.Ring(64, 0.12f));
             burst = SpriteFactory.ToSprite(ShapeSprites.Burst(48));
+            burstErupting = SpriteFactory.ToSprite(ShapeSprites.Burst(48, new Rgba(255, 140, 30), new Rgba(214, 80, 12)));
+            burstSpent = SpriteFactory.ToSprite(ShapeSprites.Burst(48, new Rgba(150, 152, 158), new Rgba(112, 114, 120)));
             portal = SpriteFactory.ToSprite(ShapeSprites.Portal(48));
             tornado = SpriteFactory.ToSprite(ShapeSprites.Tornado(48));
 
@@ -152,8 +157,10 @@ namespace SpellBrigadeMinimap
                     if (m.Zone && m.Radius > 0f)
                         zones.Place(ring, m.Color, ToUnity(MapMath.WorldToPanel(view, m.Pos)), m.Radius * 2f * scale, 0f);
             if (cfg.ShowMapFeatures.Value)
-                foreach (var f in s.Features)
-                    if (f.Kind == FeatureKind.Trap) DrawFeature(zones, burst, Color.white, f.Pos, view, TrapSize);
+                foreach (var g in s.Geysers)
+                    if (g.State != GeyserState.Erupting)
+                        DrawFeature(zones, g.State == GeyserState.Ready ? burst : burstSpent, Color.white, g.Pos, view,
+                            g.State == GeyserState.Ready ? GeyserSize : SpentGeyserSize);
             zones.End();
 
             DrawEnemies(s, view);
@@ -164,7 +171,15 @@ namespace SpellBrigadeMinimap
                     if (f.Kind == FeatureKind.Portal)
                         DrawFeature(icons, portal, f.Active ? PortalOpen : PortalClosed, f.Pos, view, PortalSize);
             if (cfg.ShowMapFeatures.Value)
+            {
                 foreach (var t in s.Tornadoes) DrawFeature(icons, tornado, Color.white, t, view, TornadoSize);
+                // Erupting geysers: orange, above the enemy dots, shaking a little.
+                float time = Time.unscaledTime;
+                foreach (var g in s.Geysers)
+                    if (g.State == GeyserState.Erupting)
+                        DrawFeature(icons, burstErupting, Color.white, g.Pos, view, EruptingGeyserSize,
+                            new Vector2(Mathf.Sin(time * 53f) * 1.3f, Mathf.Cos(time * 61f) * 1.1f), Mathf.Sin(time * 41f) * 7f);
+            }
             foreach (var poi in s.Pois) DrawPoi(poi, view, discovery);
             if (cfg.ShowMoreEvents.Value)
                 foreach (var m in markers)
@@ -187,7 +202,10 @@ namespace SpellBrigadeMinimap
             dotPixels.Clear();
             if (cfg.ShowEnemies.Value)
             {
+                // Dark outlines first, then the dots, so crowded dots don't cover each other's colour and every dot
+                // stands out on any ground (the ice map's red bushes included).
                 float toPx = DotTextureSize / (2f * view.HalfSize);
+                dotSpots.Clear();
                 foreach (var e in s.Enemies)
                 {
                     NVec2 p = MapMath.WorldToPanel(view, e.Pos);
@@ -195,8 +213,11 @@ namespace SpellBrigadeMinimap
                     any = true;
                     float x = (p.X + view.HalfSize) * toPx;
                     float y = (p.Y + view.HalfSize) * toPx;
-                    dotPixels.FillCircle(x, y, e.Elite ? 2.2f : 1.3f, e.Elite ? EliteColor : EnemyColor);
+                    dotSpots.Add((x, y, e.Elite));
+                    dotPixels.FillCircle(x, y, (e.Elite ? EliteRadius : DotRadius) + DotOutline, EnemyOutline);
                 }
+                foreach (var (x, y, elite) in dotSpots)
+                    dotPixels.FillCircle(x, y, elite ? EliteRadius : DotRadius, elite ? EliteColor : EnemyColor);
             }
             if (!any && dotsEmpty) return; // already blank on the GPU
             SpriteFactory.Upload(dotTexture, dotPixels, keepReadable: true);
@@ -234,11 +255,12 @@ namespace SpellBrigadeMinimap
         }
 
         /// <summary>An upright icon for a fixed level feature, only while it's on the minimap.</summary>
-        void DrawFeature(IconPool pool, Sprite sprite, Color color, NVec2 world, in MapView view, float size)
+        void DrawFeature(IconPool pool, Sprite sprite, Color color, NVec2 world, in MapView view, float size,
+            Vector2 shake = default, float tilt = 0f)
         {
             NVec2 p = MapMath.WorldToPanel(view, world);
             if (!(round ? MapMath.IsInsideCircle(p, view.HalfSize) : MapMath.IsInside(p, view.HalfSize))) return;
-            pool.Place(sprite, color, ToUnity(p), size, 0f);
+            pool.Place(sprite, color, ToUnity(p) + shake, size, tilt);
         }
 
         /// <summary>Draws an icon; if it's off the panel and <paramref name="clamp"/> is set, pins it to the edge with an arrow.</summary>

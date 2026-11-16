@@ -39,8 +39,10 @@ namespace SpellBrigadeMinimap
                 "Scenery at least 1 unit tall whose material, mesh or object name contains one of these words is drawn as an obstacle (things you can't walk through), even if the game keeps its collider elsewhere. Pebbles, grass, bushes, flowers and trees never count. Comma-separated.");
             LiftDarkGround = f.Bind("Look", "LiftDarkGround", true,
                 "Pixelated style: brighten the darkest patches of ground toward the map's lighter ground, so only obstacles are near-black. Helps on the fire and astral maps.");
-            TintKeywords = f.Bind("Look", "TintKeywords", "deathbush:C8343C",
-                "Pixelated style: scenery whose material, mesh or object name contains the word is coloured on the map, as word:RRGGBB. Comma-separated (e.g. deathbush:C8343C).");
+            TintKeywords = f.Bind("Look", "TintKeywords", "deathbush:962434",
+                "Pixelated style: scenery whose material, mesh or object name contains the word is coloured on the map, as word:RRGGBB. Comma-separated (e.g. deathbush:962434).");
+            // The first bush red matched the enemy dots; move the old default to the deeper crimson.
+            if (TintKeywords.Value == "deathbush:C8343C") TintKeywords.Value = "deathbush:962434";
             Size = f.Bind("Layout", "Size", 220f, new ConfigDescription("Side length in pixels at 1080p.", new AcceptableValueRange<float>(100f, 600f)));
             Margin = f.Bind("Layout", "Margin", 16f, new ConfigDescription("Gap from the screen edges in pixels at 1080p.", new AcceptableValueRange<float>(0f, 200f)));
             BottomOffset = f.Bind("Layout", "BottomOffset", 30f, new ConfigDescription("Extra gap below the minimap in a bottom corner, so it sits above the game's text bar (pixels at 1080p).", new AcceptableValueRange<float>(0f, 400f)));

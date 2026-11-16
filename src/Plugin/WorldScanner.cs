@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Unity.Netcode;
 using UnityEngine;
 using NVec2 = System.Numerics.Vector2;
@@ -21,15 +22,24 @@ namespace SpellBrigadeMinimap
 
     internal enum PoiKind { Objective, Boss, Downed, Danger, Pickup, Health }
 
-    internal enum FeatureKind { Trap, Portal }
+    internal enum FeatureKind { Portal }
 
-    /// <summary>A fixed part of the level worth marking: a trap (geyser) or a teleport portal.</summary>
+    /// <summary>A fixed part of the level worth marking (a teleport portal).</summary>
     internal struct FeatureDot
     {
         public NVec2 Pos;
         public FeatureKind Kind;
-        /// <summary>Portals: open right now. Traps: always true.</summary>
+        /// <summary>Open right now.</summary>
         public bool Active;
+    }
+
+    /// <summary>Ready to go off; building up or erupting; recharging.</summary>
+    internal enum GeyserState { Ready, Erupting, Cooldown }
+
+    internal struct GeyserDot
+    {
+        public NVec2 Pos;
+        public GeyserState State;
     }
 
     /// <summary>A point of interest the game itself draws an off-screen pointer for.</summary>
@@ -66,6 +76,19 @@ namespace SpellBrigadeMinimap
         /// <summary>Where each tornado is right now (updated every frame; the list of tornadoes once a second).</summary>
         public readonly List<NVec2> Tornadoes = new List<NVec2>();
         readonly List<Transform> tornadoTransforms = new List<Transform>();
+        /// <summary>Every geyser and its state right now (updated every frame).</summary>
+        public readonly List<GeyserDot> Geysers = new List<GeyserDot>();
+        readonly Dictionary<IntPtr, TrackedGeyser> geysers = new Dictionary<IntPtr, TrackedGeyser>();
+        int geyserLogs;
+
+        sealed class TrackedGeyser
+        {
+            public GeyserController Controller;
+            public NVec2 Pos;
+            public bool WasTriggered;
+            public float TriggeredAt = -1f;
+            public float EruptSeconds, CycleSeconds;
+        }
 
         readonly HashSet<int> eliteTypes = new HashSet<int>();
         float nextEnemyScan, nextPoiScan, nextFeatureScan;
@@ -80,6 +103,9 @@ namespace SpellBrigadeMinimap
             Features.Clear();
             Tornadoes.Clear();
             tornadoTransforms.Clear();
+            Geysers.Clear();
+            geysers.Clear();
+            geyserLogs = 0;
             featuresLogged = false;
             nextEnemyScan = nextPoiScan = nextFeatureScan = 0f;
             HasCenter = false;
@@ -98,6 +124,7 @@ namespace SpellBrigadeMinimap
             {
                 Features.Clear();
                 Tornadoes.Clear();
+                Geysers.Clear();
             }
             else
             {
@@ -107,6 +134,7 @@ namespace SpellBrigadeMinimap
                     ScanFeatures();
                 }
                 TrackTornadoes();
+                TrackGeysers();
             }
 
             if (!wantEnemies) Enemies.Clear();
@@ -276,20 +304,34 @@ namespace SpellBrigadeMinimap
         void ScanFeatures()
         {
             Features.Clear();
-            int traps = 0, portals = 0, open = 0;
+            int portals = 0, open = 0;
             try
             {
-                var geysers = UnityEngine.Object.FindObjectsOfType<GeyserController>();
-                for (int i = 0; i < geysers.Length; i++)
+                // Geysers stay put; keep each one's eruption timing across scans.
+                var found = UnityEngine.Object.FindObjectsOfType<GeyserController>();
+                var seen = new HashSet<IntPtr>();
+                for (int i = 0; i < found.Length; i++)
                 {
-                    var g = geysers[i];
+                    var g = found[i];
                     if (g == null || !g.isActiveAndEnabled) continue;
+                    seen.Add(g.Pointer);
+                    if (geysers.ContainsKey(g.Pointer)) continue;
                     Vector3 p = g.transform.position;
-                    Features.Add(new FeatureDot { Pos = new NVec2(p.x, p.z), Kind = FeatureKind.Trap, Active = true });
-                    traps++;
+                    float erupt = Math.Max(0f, g.buildUpTimeInSeconds) + Math.Max(0f, g.activeTimeInSeconds);
+                    geysers[g.Pointer] = new TrackedGeyser
+                    {
+                        Controller = g,
+                        Pos = new NVec2(p.x, p.z),
+                        EruptSeconds = erupt,
+                        CycleSeconds = erupt + Math.Max(0f, g.cooldownTimeInSeconds),
+                    };
+                    if (geysers.Count == 1)
+                        Mod.Log.LogInfo($"Geyser timing: build-up {g.buildUpTimeInSeconds:0.##} s, active {g.activeTimeInSeconds:0.##} s, cooldown {g.cooldownTimeInSeconds:0.##} s.");
                 }
+                foreach (var key in geysers.Keys.Where(k => !seen.Contains(k)).ToList()) geysers.Remove(key);
             }
             catch (Exception e) { LogOnce.Error("finding geysers", e); }
+            int traps = geysers.Count;
 
             try
             {
@@ -336,6 +378,41 @@ namespace SpellBrigadeMinimap
             {
                 featuresLogged = true;
                 Mod.Log.LogInfo($"Map features: {traps} geysers, {portals} portals ({open} open), {tornadoTransforms.Count} tornadoes.");
+            }
+        }
+
+        /// <summary>
+        /// A geyser goes off when someone steps on it: the game sets isTriggered and runs build-up, eruption and
+        /// cooldown for the times on the controller, on every player's game. The state is timed from the moment
+        /// isTriggered turns on; it counts as recharging for as long as isTriggered stays on after the eruption.
+        /// </summary>
+        void TrackGeysers()
+        {
+            Geysers.Clear();
+            float now = Time.time;
+            foreach (var g in geysers.Values)
+            {
+                try
+                {
+                    if (g.Controller == null) continue;
+                    bool triggered = g.Controller.isTriggered;
+                    float since = g.TriggeredAt < 0f ? float.MaxValue : now - g.TriggeredAt;
+                    if (triggered && !g.WasTriggered && since >= g.CycleSeconds)
+                    {
+                        g.TriggeredAt = now;
+                        since = 0f;
+                        if (geyserLogs++ < 4) Mod.Log.LogInfo($"Geyser at {g.Pos.X:0},{g.Pos.Y:0} went off.");
+                    }
+                    else if (!triggered && g.WasTriggered && geyserLogs++ < 8)
+                        Mod.Log.LogInfo($"Geyser at {g.Pos.X:0},{g.Pos.Y:0} reset after {since:0.0} s.");
+                    g.WasTriggered = triggered;
+
+                    var state = since < g.EruptSeconds ? GeyserState.Erupting
+                              : since < g.CycleSeconds || triggered ? GeyserState.Cooldown
+                              : GeyserState.Ready;
+                    Geysers.Add(new GeyserDot { Pos = g.Pos, State = state });
+                }
+                catch { } // destroyed between scans
             }
         }
 

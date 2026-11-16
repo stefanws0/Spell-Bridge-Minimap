@@ -81,14 +81,17 @@ namespace SpellBrigadeMinimap.Core
         /// An eruption (geysers): an 8-ray yellow star with a deeper yellow center and a dark border. Drawn in its
         /// own colours (not tinted).
         /// </summary>
-        public static PixelBuffer Burst(int size) => Render(size, (u, v) =>
+        public static PixelBuffer Burst(int size) => Burst(size, BurstYellow, BurstCenter);
+
+        /// <summary>The burst in other colours (e.g. orange while a geyser erupts, grey while it recharges).</summary>
+        public static PixelBuffer Burst(int size, Rgba fill, Rgba center) => Render(size, (u, v) =>
         {
             if (!InBurst(u, v)) return Rgba.Clear;
             const float t = 0.06f, d = t * 0.7f;
             bool inner = InBurst(u + t, v) && InBurst(u - t, v) && InBurst(u, v + t) && InBurst(u, v - t)
                 && InBurst(u + d, v + d) && InBurst(u - d, v - d) && InBurst(u + d, v - d) && InBurst(u - d, v + d);
             if (!inner) return Border;
-            return Distance(u, v) < 0.13f ? BurstCenter : BurstYellow;
+            return Distance(u, v) < 0.13f ? center : fill;
         });
 
         /// <summary>Rays point at 22.5° + k x 45°; the outline runs straight from 0.47 at a ray to 0.25 between rays.</summary>
