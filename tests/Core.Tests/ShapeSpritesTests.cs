@@ -69,6 +69,17 @@ namespace SpellBrigadeMinimap.Tests
             Check.True(eye.R < 40 && badge.R < 40, $"dark eye {eye} and badge {badge}");
         }
 
+        public static void GhostIsAWhiteGhostWithDarkEyesAndAWavyHem()
+        {
+            var img = ShapeSprites.Ghost(64);
+            Check.Equal((byte)0, img.GetPixel(2, 62).A, "clear top corner");
+            Rgba body = img.GetPixel(32, 24);
+            Check.True(body.A == 255 && body.R > 230, $"white body (tinted by the player's colour): {body}");
+            Rgba eye = img.GetPixel(24, 37);
+            Check.True(eye.R < 40, $"dark eye: {eye}");
+            Check.True(img.GetPixel(32, 8).A > 0 && img.GetPixel(24, 8).A == 0, "wavy hem: a scallop in the middle, a notch between scallops");
+        }
+
         public static void PortalIsAnOvalRingWithAFaintCenter()
         {
             var img = ShapeSprites.Portal(64);

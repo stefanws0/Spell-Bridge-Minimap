@@ -52,6 +52,9 @@ namespace SpellBrigadeMinimap
         public ulong Key;
         public Sprite Sprite;
         public Color Color;
+        /// <summary>An order objective's mushroom (coloured by its state), and that objective's key.</summary>
+        public OrderObjectiveInteractable Pillar;
+        public ulong GroupKey;
 
         public bool ClampToEdge => Kind == PoiKind.Objective || Kind == PoiKind.Boss || Kind == PoiKind.Downed;
     }
@@ -95,6 +98,15 @@ namespace SpellBrigadeMinimap
         float nextEnemyScan, nextPoiScan, nextFeatureScan;
         bool featuresLogged;
 
+        OrderObjective orderObjective;
+        float nextOrderLookup;
+        bool orderLogged;
+        readonly HashSet<IntPtr> pillarsWithPointers = new HashSet<IntPtr>();
+        readonly Dictionary<IntPtr, OrderObjectiveInteractable> pillarOfTarget = new Dictionary<IntPtr, OrderObjectiveInteractable>();
+        Vector3 lastGhostPos;
+        bool ghostPosValid;
+        const float GhostTurnDistance = 0.02f;   // the ghost must move this far in a frame to turn the arrow
+
         /// <summary>Bosses right now (drawn as their own icon, not a dot).</summary>
         public readonly List<NVec2> Bosses = new List<NVec2>();
         EnemyRanker ranker = new EnemyRanker(3f, SwarmMinCount);
@@ -114,6 +126,11 @@ namespace SpellBrigadeMinimap
         {
             eliteTypes.Clear();
             Bosses.Clear();
+            orderObjective = null;
+            nextOrderLookup = 0f;
+            orderLogged = false;
+            pillarOfTarget.Clear();
+            ghostPosValid = false;
             typeInfo.Clear();
             ranker = new EnemyRanker(Mod.Settings.BigEnemyHealth.Value, SwarmMinCount);
             Players.Clear();
@@ -215,6 +232,7 @@ namespace SpellBrigadeMinimap
                     if (p.IsOwner)
                     {
                         found = true;
+                        ghostPosValid = false;
                         Center = new NVec2(pos.x, pos.z);
                         CenterY = pos.y;
                         var vt = p.visualTransform;
@@ -241,6 +259,14 @@ namespace SpellBrigadeMinimap
                             found = true;
                             Center = new NVec2(pos.x, pos.z);
                             CenterY = pos.y;
+                            // A ghost doesn't turn like the wizard does, so the arrow follows where it moves.
+                            if (ghostPosValid)
+                            {
+                                float dx = pos.x - lastGhostPos.x, dz = pos.z - lastGhostPos.z;
+                                if (dx * dx + dz * dz > GhostTurnDistance * GhostTurnDistance) Facing = new NVec2(dx, dz);
+                            }
+                            lastGhostPos = pos;
+                            ghostPosValid = true;
                         }
                     }
                     else
@@ -331,32 +357,92 @@ namespace SpellBrigadeMinimap
         void ScanPois()
         {
             Pois.Clear();
+            pillarsWithPointers.Clear();
+            ulong group = OrderObjectiveKey();
             var spm = ScreenPointerManager.Instance;
-            if (spm == null) return;
-            var pointers = spm.activePointers;
-            if (pointers == null) return;
-            foreach (var kv in pointers)
-            {
-                Transform target = kv.Key;
-                ScreenPointer sp = kv.Value;
-                if (target == null || sp == null) continue;
-                if (!TryKind(sp.pointerType, out PoiKind kind)) continue;
+            var pointers = spm != null ? spm.activePointers : null;
+            if (pointers != null)
+                foreach (var kv in pointers)
+                {
+                    Transform target = kv.Key;
+                    ScreenPointer sp = kv.Value;
+                    if (target == null || sp == null) continue;
+                    if (!TryKind(sp.pointerType, out PoiKind kind)) continue;
 
-                var poi = new Poi { Target = target, Kind = kind, Color = Color.white, Key = KeyOf(target) };
-                var images = sp.iconImages;
-                if (images != null)
-                    for (int i = 0; i < images.Count; i++)
-                    {
-                        var img = images[i];
-                        if (img != null && img.sprite != null)
+                    var poi = new Poi { Target = target, Kind = kind, Color = Color.white, Key = KeyOf(target) };
+                    var images = sp.iconImages;
+                    if (images != null)
+                        for (int i = 0; i < images.Count; i++)
                         {
-                            poi.Sprite = img.sprite;
-                            poi.Color = img.color;
-                            break;
+                            var img = images[i];
+                            if (img != null && img.sprite != null)
+                            {
+                                poi.Sprite = img.sprite;
+                                poi.Color = img.color;
+                                break;
+                            }
+                        }
+                    if (kind == PoiKind.Objective && orderObjective != null)
+                    {
+                        var pillar = PillarOf(target);
+                        if (pillar != null)
+                        {
+                            poi.Pillar = pillar;
+                            poi.GroupKey = group;
+                            pillarsWithPointers.Add(pillar.Pointer);
                         }
                     }
-                Pois.Add(poi);
+                    Pois.Add(poi);
+                }
+
+            // The order objective's mushrooms the game doesn't point at.
+            try
+            {
+                var list = orderObjective != null ? orderObjective.interactableObjects : null;
+                if (list != null)
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        var pillar = list[i];
+                        if (pillar == null || !pillar.isActiveAndEnabled || pillarsWithPointers.Contains(pillar.Pointer)) continue;
+                        Pois.Add(new Poi
+                        {
+                            Target = pillar.transform, Kind = PoiKind.Objective, Color = Color.white,
+                            Key = KeyOf(pillar.transform), Pillar = pillar, GroupKey = group,
+                        });
+                    }
             }
+            catch (Exception e) { LogOnce.Error("reading the order objective's mushrooms", e); }
+        }
+
+        /// <summary>The running order objective (looked up once a second) and its key, or 0.</summary>
+        ulong OrderObjectiveKey()
+        {
+            float now = Time.unscaledTime;
+            if (now >= nextOrderLookup)
+            {
+                nextOrderLookup = now + 1f;
+                try { orderObjective = UnityEngine.Object.FindObjectOfType<OrderObjective>(); }
+                catch (Exception e) { LogOnce.Error("finding the order objective", e); orderObjective = null; }
+                if (orderObjective != null && !orderLogged)
+                {
+                    orderLogged = true;
+                    var list = orderObjective.interactableObjects;
+                    Mod.Log.LogInfo($"Order objective found with {(list != null ? list.Count : 0)} mushrooms.");
+                }
+            }
+            if (orderObjective == null) return 0;
+            try { return KeyOf(orderObjective.transform); }
+            catch { orderObjective = null; return 0; }
+        }
+
+        OrderObjectiveInteractable PillarOf(Transform target)
+        {
+            IntPtr key = target.Pointer;
+            if (pillarOfTarget.TryGetValue(key, out var p)) return p;
+            try { p = target.GetComponentInParent<OrderObjectiveInteractable>(); }
+            catch { p = null; }
+            pillarOfTarget[key] = p;
+            return p;
         }
 
         /// <summary>Geysers (the ice map's traps) and teleport portals, with which portals are open.</summary>

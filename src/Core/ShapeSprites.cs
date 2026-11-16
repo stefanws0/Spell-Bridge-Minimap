@@ -153,6 +153,36 @@ namespace SpellBrigadeMinimap.Core
                 && (Math.Abs(u - 0.44f) < 0.015f || Math.Abs(u - 0.5f) < 0.015f || Math.Abs(u - 0.56f) < 0.015f); // teeth
         }
 
+        /// <summary>
+        /// A ghost (a dead player): white, so UI tinting gives it the player's colour, with a dark border, dark
+        /// eyes and a wavy hem of three scallops.
+        /// </summary>
+        public static PixelBuffer Ghost(int size) => Render(size, (u, v) =>
+        {
+            if (!InGhost(u, v)) return Rgba.Clear;
+            const float t = 0.055f, d = t * 0.7f;
+            bool inner = InGhost(u + t, v) && InGhost(u - t, v) && InGhost(u, v + t) && InGhost(u, v - t)
+                && InGhost(u + d, v + d) && InGhost(u - d, v - d) && InGhost(u + d, v - d) && InGhost(u - d, v + d);
+            if (!inner) return Border;
+            float lx = (u - 0.38f) / 0.075f, rx = (u - 0.62f) / 0.075f, ey = (v - 0.6f) / 0.105f;
+            if (lx * lx + ey * ey <= 1f || rx * rx + ey * ey <= 1f) return Border;
+            return Rgba.White;
+        });
+
+        static bool InGhost(float u, float v)
+        {
+            const float left = 0.16f, right = 0.84f, top = 0.56f, hemTop = 0.2f, hemDepth = 0.14f;
+            if (u < left || u > right) return false;
+            float dx = u - 0.5f, dy = v - top;
+            if (v >= top) return dx * dx + dy * dy <= 0.34f * 0.34f;             // round head
+            if (v >= hemTop) return true;                                       // body
+            // three scallops: each hangs down to hemTop - hemDepth in its middle and rises to hemTop at its edges
+            float s = (u - left) / (right - left) * 3f;
+            float f = s - (float)Math.Floor(s);
+            float bottom = hemTop - hemDepth * (float)Math.Sin(f * Math.PI);
+            return v >= bottom;
+        }
+
         static readonly Rgba WindGrey = new Rgba(200, 204, 212, 255);
 
         /// <summary>A tornado: a light grey funnel, wide at the top, with a dark border and dark swirl lines.</summary>

@@ -44,12 +44,22 @@ namespace SpellBrigadeMinimap
         readonly PixelBuffer dotPixels = new PixelBuffer(DotTextureSize, DotTextureSize);
         readonly List<(float x, float y, int rank)> dotSpots = new List<(float, float, int)>();
         readonly Texture2D dotTexture;
-        readonly Sprite disc, ring, arrow, diamond, roundShape, badgeRing, burst, burstErupting, burstSpent, portal, tornado, boss;
+        readonly Sprite disc, ring, arrow, diamond, roundShape, badgeRing, burst, burstErupting, burstSpent, portal, tornado, boss, ghost;
+        readonly HashSet<ulong> knownGroups = new HashSet<ulong>();
+        const float GhostSize = 16f, PillarSize = 18f;
+        // The order objective's mushrooms, as the game colours them: waiting, hit in the right order, wrong.
+        static readonly Color PillarIdle = new Color(0.36f, 0.62f, 1f, 1f);
+        static readonly Color PillarCorrect = new Color(0.36f, 0.95f, 0.45f, 1f);
+        static readonly Color PillarWrong = new Color(1f, 0.32f, 0.3f, 1f);
 
         BakedMap map;
         bool visible = true, dotsEmpty, round;
         float panelInset = SquareBorder;
-        float lastSize = -1f, lastMargin = -1f, lastBottomOffset = -1f;
+        float lastSize = -1f, lastMargin = -1f, lastBottomOffset = -1f, lastLift = -1f, lift;
+        readonly HudAvoider hud = new HudAvoider();
+        readonly Canvas canvas;
+        const float HudGap = 8f;                 // canvas units kept between the game's panel and the minimap
+        const float MaxHudMoveShare = 0.45f;     // never move more than this share of the screen height
         ScreenCorner lastCorner = (ScreenCorner)(-1);
         MapShape lastShape = (MapShape)(-1);
 
@@ -68,10 +78,11 @@ namespace SpellBrigadeMinimap
             portal = SpriteFactory.ToSprite(ShapeSprites.Portal(48));
             tornado = SpriteFactory.ToSprite(ShapeSprites.Tornado(48));
             boss = SpriteFactory.ToSprite(ShapeSprites.BossSkull(64, new Rgba(222, 58, 58)));
+            ghost = SpriteFactory.ToSprite(ShapeSprites.Ghost(48));
 
             root = new GameObject("SpellBrigadeMinimap");
             Object.DontDestroyOnLoad(root);
-            var canvas = root.AddComponent<Canvas>();
+            canvas = root.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 300;
             var scaler = root.AddComponent<CanvasScaler>();
@@ -137,6 +148,10 @@ namespace SpellBrigadeMinimap
 
         public void Render(WorldScanner s, List<EventMarker> markers, ObjectiveDiscovery discovery, float yaw, float radius)
         {
+            lift = cfg.AvoidGameHud.Value
+                ? hud.Tick(Time.unscaledTime, Time.unscaledDeltaTime, HomeScreenBox(out bool bottom), bottom, canvas,
+                    Mathf.Max(0.01f, canvas.scaleFactor), HudGap, MaxHudMoveShare * 1080f)
+                : 0f;
             ApplyLayout();
             group.alpha = cfg.Opacity.Value;
             float half = (cfg.Size.Value - 2f * panelInset) * 0.5f;
@@ -183,6 +198,10 @@ namespace SpellBrigadeMinimap
                         DrawFeature(icons, burstErupting, Color.white, g.Pos, view, EruptingGeyserSize,
                             new Vector2(Mathf.Sin(time * 53f) * 1.3f, Mathf.Cos(time * 61f) * 1.1f), Mathf.Sin(time * 41f) * 7f);
             }
+            // Once anyone has seen one mushroom of an order objective, show all of them.
+            knownGroups.Clear();
+            foreach (var poi in s.Pois)
+                if (poi.Pillar != null && (discovery.IsKnown(poi.Key) || discovery.IsKnown(poi.GroupKey))) knownGroups.Add(poi.GroupKey);
             foreach (var poi in s.Pois)
                 if (!(poi.Kind == PoiKind.Boss && s.Bosses.Count > 0 && cfg.ShowEnemies.Value)) // the boss icon below replaces the game's pointer
                     DrawPoi(poi, view, discovery);
@@ -194,9 +213,8 @@ namespace SpellBrigadeMinimap
             if (cfg.ShowTeammates.Value)
                 foreach (var p in s.Players)
                 {
-                    Color c = p.Color;
-                    if (p.Ghost) c.a = 0.5f;
-                    DrawPoint(disc, c, MapMath.WorldToPanel(view, p.Pos), p.Ghost ? 10f : 13f, half, clamp: true);
+                    // Dead teammates are a ghost in their own colour, the living a dot.
+                    DrawPoint(p.Ghost ? ghost : disc, p.Color, MapMath.WorldToPanel(view, p.Pos), p.Ghost ? GhostSize : 13f, half, clamp: true);
                 }
             icons.End();
 
@@ -239,10 +257,30 @@ namespace SpellBrigadeMinimap
             if (poi.Target == null) return;
             bool pickup = poi.Kind == PoiKind.Pickup || poi.Kind == PoiKind.Health;
             if (pickup ? !cfg.ShowPickups.Value : !cfg.ShowObjectives.Value) return;
-            if (poi.Kind == PoiKind.Objective && cfg.HideUndiscoveredObjectives.Value && !discovery.IsKnown(poi.Key)) return;
+            bool found = discovery.IsKnown(poi.Key) || (poi.Pillar != null && knownGroups.Contains(poi.GroupKey));
+            if (poi.Kind == PoiKind.Objective && cfg.HideUndiscoveredObjectives.Value && !found) return;
 
             Vector3 w = poi.Target.position;
             NVec2 p = MapMath.WorldToPanel(view, new NVec2(w.x, w.z));
+            if (poi.Pillar != null)
+            {
+                // An order-objective mushroom: a dark badge ringed in its current state's colour.
+                if (!(round ? MapMath.IsInsideCircle(p, view.HalfSize) : MapMath.IsInside(p, view.HalfSize))) return;
+                Color c = PillarIdle;
+                try
+                {
+                    var st = poi.Pillar.state;
+                    c = st == OrderObjectiveInteractableState.Correct ? PillarCorrect
+                      : st == OrderObjectiveInteractableState.Incorrect ? PillarWrong : PillarIdle;
+                }
+                catch { } // despawned
+                Vector2 at = ToUnity(p);
+                icons.Place(disc, BadgeColor, at, PillarSize, 0f);
+                icons.Place(badgeRing, c, at, PillarSize, 0f);
+                if (poi.Sprite != null) icons.Place(poi.Sprite, Color.Lerp(c, Color.white, 0.35f), at, PillarSize * 0.66f, 0f);
+                else icons.Place(disc, c, at, PillarSize * 0.5f, 0f);
+                return;
+            }
             if (pickup)
             {
                 // Pickups sit on a dark badge (the HUD's circle style) so they read on any ground;
@@ -317,12 +355,13 @@ namespace SpellBrigadeMinimap
             float size = cfg.Size.Value, margin = cfg.Margin.Value, bottomOffset = cfg.BottomOffset.Value;
             ScreenCorner corner = cfg.Corner.Value;
             if (shape == lastShape && size == lastSize && margin == lastMargin
-                && bottomOffset == lastBottomOffset && corner == lastCorner) return;
+                && bottomOffset == lastBottomOffset && corner == lastCorner && lift == lastLift) return;
             lastShape = shape;
             lastSize = size;
             lastMargin = margin;
             lastBottomOffset = bottomOffset;
             lastCorner = corner;
+            lastLift = lift;
 
             round = shape == MapShape.Round;
             frameImg.enabled = !round;
@@ -340,8 +379,22 @@ namespace SpellBrigadeMinimap
             frame.anchorMin = anchor;
             frame.anchorMax = anchor;
             frame.pivot = anchor;
-            frame.anchoredPosition = new Vector2(right ? -margin : margin, top ? -margin : margin + bottomOffset);
+            frame.anchoredPosition = new Vector2(right ? -margin : margin, top ? -(margin + lift) : margin + bottomOffset + lift);
             frame.sizeDelta = new Vector2(size, size);
+        }
+
+        /// <summary>Where the minimap sits in screen pixels before moving out of the game HUD's way.</summary>
+        ScreenBox HomeScreenBox(out bool bottom)
+        {
+            ScreenCorner corner = cfg.Corner.Value;
+            bool right = corner == ScreenCorner.TopRight || corner == ScreenCorner.BottomRight;
+            bottom = corner == ScreenCorner.BottomLeft || corner == ScreenCorner.BottomRight;
+            float s = Mathf.Max(0.01f, canvas.scaleFactor);
+            float size = cfg.Size.Value * s, margin = cfg.Margin.Value * s, below = (cfg.Margin.Value + cfg.BottomOffset.Value) * s;
+            float w = Screen.width, h = Screen.height;
+            float xMin = right ? w - margin - size : margin;
+            float yMin = bottom ? below : h - margin - size;
+            return new ScreenBox(xMin, yMin, xMin + size, yMin + size);
         }
 
         static Vector2 ToUnity(NVec2 v) => new Vector2(v.X, v.Y);
