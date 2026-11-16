@@ -13,16 +13,24 @@ namespace SpellBrigadeMinimap.Core
     /// </summary>
     public static class ArenaFinder
     {
-        /// <summary>The arena must keep this share of the walkable cells for the result to count.</summary>
+        /// <summary>The arena must keep this share of the walkable cells for the result to count...</summary>
         public const float MinKept = 0.25f, MaxKept = 0.95f;
+        /// <summary>
+        /// ...or at least this many cells. Arenas are about 100 x 100 units (7,000-9,000 ground cells); the fire
+        /// world's NavMesh reaches so far past its wall that its arena is under a quarter of it. Pockets around
+        /// the start point on maps whose wall has wide gaps are about 100-1,100 cells.
+        /// </summary>
+        public const int DefaultMinArenaCells = 4000;
 
         /// <summary>
         /// Returns a per-cell flag for walkable cells beyond the arena walls, or null when the map doesn't look
         /// like an enclosed arena (no wall, an opening too wide to seal, the start point would be trimmed, or
-        /// almost nothing kept). <paramref name="kept"/> is the share of walkable cells left in the arena.
-        /// Cells flagged in <paramref name="alsoBlocked"/> (solid scenery found some other way) count as walls.
+        /// too little kept, both as a share and as a count). <paramref name="kept"/> is the share of walkable
+        /// cells left in the arena. Cells flagged in <paramref name="alsoBlocked"/> (solid scenery found some
+        /// other way) count as walls.
         /// </summary>
-        public static bool[] FindOuterBand(WalkableFlood f, int radius, out float kept, bool[] alsoBlocked = null)
+        public static bool[] FindOuterBand(WalkableFlood f, int radius, out float kept, bool[] alsoBlocked = null,
+            int minArenaCells = DefaultMinArenaCells)
         {
             kept = 1f;
             if (f.WalkableCount == 0 || f.SeedIndex < 0 || radius < 1) return null;
@@ -85,7 +93,8 @@ namespace SpellBrigadeMinimap.Core
                 }
             kept = walkable > 0 ? (float)(walkable - bandCells) / walkable : 1f;
             if (band[f.SeedIndex]) return null;
-            return kept >= MinKept && kept <= MaxKept ? band : null;
+            bool bigEnough = kept >= MinKept || walkable - bandCells >= minArenaCells;
+            return bigEnough && kept <= MaxKept ? band : null;
         }
 
         /// <summary>Square (Chebyshev) dilation in two passes; cells beyond the window read as <paramref name="outsideValue"/>.</summary>

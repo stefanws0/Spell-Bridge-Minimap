@@ -2,7 +2,7 @@
   "name": "SpellBrigadeMinimap",
   "version_number": "1.0.0",
   "website_url": "",
-  "description": "A corner minimap: level layout, enemies (elites highlighted), objectives, the boss, pickups, teammates, and MoreEvents targets.",
+  "description": "A round corner minimap in the game's HUD style: a pixel picture of the arena with its rocks and walls, enemies by rank, bosses, objectives, pickups, teammates, geysers, tornadoes and portals.",
   "dependencies": [
     "BepInEx-BepInExPack_IL2CPP-6.0.788"
   ]

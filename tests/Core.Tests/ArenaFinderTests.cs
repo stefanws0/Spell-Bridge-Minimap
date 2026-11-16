@@ -32,6 +32,34 @@ namespace SpellBrigadeMinimap.Tests
 
         static bool At(WalkableFlood f, bool[] band, float x, float z) => band[f.IndexOf(x, z)];
 
+        // The fire world: a small walled arena (6 <= max(|x|, |z|) < 8, gap on +X) inside NavMesh that reaches
+        // much further out (|x|, |z| < 23), so the arena is well under a quarter of the walkable cells.
+        static readonly GroundProbe SmallArenaInWideNavMesh = (float x, float z, float yHint, out float y) =>
+        {
+            y = 0f;
+            float m = Math.Max(Math.Abs(x), Math.Abs(z));
+            if (m >= 23f) return false;
+            bool wall = m >= 6f && m < 8f;
+            bool gap = x > 0f && Math.Abs(z) < 1f;
+            return !(wall && !gap);
+        };
+
+        public static void KeepsAnArenaThatIsSmallNextToTheNavMeshButLargeInItself()
+        {
+            var f = Run(SmallArenaInWideNavMesh);
+            var band = ArenaFinder.FindOuterBand(f, 2, out float kept, null, minArenaCells: 100);
+            Check.True(kept < ArenaFinder.MinKept, $"arena share {kept} is under the old limit");
+            Check.True(band != null, "band found: the arena is big enough on its own");
+            Check.True(!At(f, band, 0.2f, 0.2f), "arena center kept");
+            Check.True(At(f, band, -20.2f, -20.2f), "far out is band");
+        }
+
+        public static void StillRejectsSmallPocketsAroundTheStart()
+        {
+            var f = Run(SmallArenaInWideNavMesh);
+            Check.True(ArenaFinder.FindOuterBand(f, 2, out _) == null, "a 140-cell pocket is too small to be the arena");
+        }
+
         public static void FloodRemembersWhereItStarted()
         {
             var f = Run(Walled(1f));
