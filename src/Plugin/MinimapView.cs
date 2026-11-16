@@ -46,6 +46,17 @@ namespace SpellBrigadeMinimap
         readonly Texture2D dotTexture;
         readonly Sprite disc, ring, arrow, diamond, roundShape, badgeRing, burst, burstErupting, burstSpent, portal, tornado, boss, ghost;
         readonly HashSet<ulong> knownGroups = new HashSet<ulong>();
+        readonly Sprite[] pieceSprites;
+        readonly Sprite crosshair;
+        readonly Dictionary<string, Sprite> counterSprites = new Dictionary<string, Sprite>();
+        const float PieceSize = 15f, CrosshairSize = 26f, GuideDotSize = 3f, GuideDotSpacing = 7f;
+        const int CounterScale = 2, CounterPadLeft = 6;
+        static readonly Color ZoneColor = new Color(0.47f, 0.86f, 0.55f, 0.9f);
+        static readonly Color ZoneFill = new Color(0.47f, 0.86f, 0.55f, 0.15f);
+        static readonly Color GuideColor = new Color(0.99f, 0.97f, 0.81f, 0.55f);
+        static readonly Color DonePiece = new Color(1f, 1f, 1f, 0.45f);
+        static readonly Rgba CounterText = new Rgba(253, 248, 206);
+        static readonly Rgba CounterPill = new Rgba(24, 24, 26, 235);
         const float GhostSize = 16f, PillarSize = 18f;
         // The order objective's mushrooms, as the game colours them: waiting, hit in the right order, wrong.
         static readonly Color PillarIdle = new Color(0.36f, 0.62f, 1f, 1f);
@@ -79,6 +90,13 @@ namespace SpellBrigadeMinimap
             tornado = SpriteFactory.ToSprite(ShapeSprites.Tornado(48));
             boss = SpriteFactory.ToSprite(ShapeSprites.BossSkull(64, new Rgba(222, 58, 58)));
             ghost = SpriteFactory.ToSprite(ShapeSprites.Ghost(48));
+            // Indexed by PieceKind: Mushroom, Crate, Herd, Stone.
+            pieceSprites = new[]
+            {
+                SpriteFactory.ToSprite(ShapeSprites.Mushroom(48)), SpriteFactory.ToSprite(ShapeSprites.Crate(48)),
+                SpriteFactory.ToSprite(ShapeSprites.Paw(48)), SpriteFactory.ToSprite(ShapeSprites.Stone(48)),
+            };
+            crosshair = SpriteFactory.ToSprite(ShapeSprites.Crosshair(64));
 
             root = new GameObject("SpellBrigadeMinimap");
             Object.DontDestroyOnLoad(root);
@@ -174,6 +192,14 @@ namespace SpellBrigadeMinimap
                 foreach (var m in markers)
                     if (m.Zone && m.Radius > 0f)
                         zones.Place(ring, m.Color, ToUnity(MapMath.WorldToPanel(view, m.Pos)), m.Radius * 2f * scale, 0f);
+            if (cfg.ShowObjectives.Value)
+                foreach (var z in s.Objectives.Zones)
+                {
+                    // Push zone / herding pen at its real size: a soft fill and a green edge.
+                    Vector2 at = ToUnity(MapMath.WorldToPanel(view, z.Center));
+                    zones.Place(roundShape, ZoneFill, at, z.Radius * 2f * scale, 0f);
+                    zones.Place(ring, ZoneColor, at, z.Radius * 2f * scale, 0f);
+                }
             if (cfg.ShowMapFeatures.Value)
                 foreach (var g in s.Geysers)
                     if (g.State != GeyserState.Erupting)
@@ -198,6 +224,8 @@ namespace SpellBrigadeMinimap
                         DrawFeature(icons, burstErupting, Color.white, g.Pos, view, EruptingGeyserSize,
                             new Vector2(Mathf.Sin(time * 53f) * 1.3f, Mathf.Cos(time * 61f) * 1.1f), Mathf.Sin(time * 41f) * 7f);
             }
+            if (cfg.ShowObjectives.Value) DrawPieces(s.Objectives, view);
+
             // Once anyone has seen one mushroom of an order objective, show all of them.
             knownGroups.Clear();
             foreach (var poi in s.Pois)
@@ -207,6 +235,14 @@ namespace SpellBrigadeMinimap
                     DrawPoi(poi, view, discovery);
             if (cfg.ShowEnemies.Value)
                 foreach (var b in s.Bosses) DrawPoint(boss, Color.white, MapMath.WorldToPanel(view, b), BossSize, half, clamp: true);
+            if (cfg.ShowObjectives.Value)
+                foreach (var t in s.Objectives.HuntTargets)
+                {
+                    // A crosshair that follows the hunted enemy, pinned to the edge when it's off the map.
+                    if (t == null) continue;
+                    Vector3 w = t.position;
+                    DrawPoint(crosshair, Color.white, MapMath.WorldToPanel(view, new NVec2(w.x, w.z)), CrosshairSize, half, clamp: true);
+                }
             if (cfg.ShowMoreEvents.Value)
                 foreach (var m in markers)
                     if (!m.Zone) DrawPoint(diamond, m.Color, MapMath.WorldToPanel(view, m.Pos), 16f, half, clamp: true);
@@ -216,6 +252,7 @@ namespace SpellBrigadeMinimap
                     // Dead teammates are a ghost in their own colour, the living a dot.
                     DrawPoint(p.Ghost ? ghost : disc, p.Color, MapMath.WorldToPanel(view, p.Pos), p.Ghost ? GhostSize : 13f, half, clamp: true);
                 }
+            if (cfg.ShowObjectives.Value) DrawCounters(s.Objectives, half);
             icons.End();
 
             you.rectTransform.localEulerAngles = new Vector3(0f, 0f, MapMath.HeadingToPanelAngle(s.Facing, yaw));
@@ -300,6 +337,53 @@ namespace SpellBrigadeMinimap
             Color color = poi.Sprite != null ? poi.Color : KindColor(poi.Kind);
             float size = poi.Kind == PoiKind.Boss ? 24f : 20f;
             DrawPoint(sprite, color, p, size, view.HalfSize, poi.ClampToEdge);
+        }
+
+        /// <summary>
+        /// The running objectives' pieces: mushrooms, objects to push, animals to herd, stones to break. Pieces that
+        /// still have to go somewhere get a faint dotted line to their zone; pieces already there are faded.
+        /// </summary>
+        void DrawPieces(ObjectivePieces o, in MapView view)
+        {
+            foreach (var piece in o.Pieces)
+            {
+                if (piece.Target == null) continue;
+                Vector3 w = piece.Target.position;
+                NVec2 p = MapMath.WorldToPanel(view, new NVec2(w.x, w.z));
+                if (piece.HasGoal && !piece.Done)
+                {
+                    NVec2 g = MapMath.WorldToPanel(view, piece.Goal);
+                    float dist = NVec2.Distance(p, g);
+                    int steps = (int)(dist / GuideDotSpacing);
+                    for (int k = 1; k < steps; k++)
+                    {
+                        NVec2 d = NVec2.Lerp(p, g, (float)k / steps);
+                        if (round ? MapMath.IsInsideCircle(d, view.HalfSize) : MapMath.IsInside(d, view.HalfSize))
+                            icons.Place(disc, GuideColor, ToUnity(d), GuideDotSize, 0f);
+                    }
+                }
+                if (!(round ? MapMath.IsInsideCircle(p, view.HalfSize) : MapMath.IsInside(p, view.HalfSize))) continue;
+                icons.Place(pieceSprites[(int)piece.Kind], piece.Done ? DonePiece : Color.white, ToUnity(p), PieceSize, 0f);
+            }
+        }
+
+        /// <summary>A pill per running objective along the top of the minimap: its piece icon and done/total.</summary>
+        void DrawCounters(ObjectivePieces o, float half)
+        {
+            for (int i = 0; i < o.Counts.Count; i++)
+            {
+                var c = o.Counts[i];
+                string text = $"{c.Done}/{c.Total}";
+                if (!counterSprites.TryGetValue(text, out var sprite))
+                {
+                    var img = PixelFont.Render(text, CounterScale, CounterText, CounterPill, 2, 1, CounterPadLeft);
+                    counterSprites[text] = sprite = SpriteFactory.ToSprite(img, FilterMode.Point);
+                }
+                float w = sprite.rect.width, h = sprite.rect.height;     // one canvas unit per pixel
+                var at = new Vector2(0f, half - 12f - i * (h + 4f));
+                icons.Place(sprite, Color.white, at, new Vector2(w, h), 0f);
+                icons.Place(pieceSprites[(int)c.Kind], Color.white, at + new Vector2(-w * 0.5f + CounterPadLeft * CounterScale * 0.5f + 2f, 0f), h - 2f, 0f);
+            }
         }
 
         /// <summary>An upright icon for a fixed level feature, only while it's on the minimap.</summary>

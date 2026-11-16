@@ -24,9 +24,9 @@ namespace SpellBrigadeMinimap
             tex.Apply(false, !keepReadable);
         }
 
-        public static Sprite ToSprite(PixelBuffer img)
+        public static Sprite ToSprite(PixelBuffer img, FilterMode filter = FilterMode.Bilinear)
         {
-            var tex = ToTexture(img, FilterMode.Bilinear, keepReadable: false);
+            var tex = ToTexture(img, filter, keepReadable: false);
             var sprite = Sprite.Create(tex, new Rect(0f, 0f, img.Width, img.Height), new Vector2(0.5f, 0.5f), 100f);
             sprite.hideFlags = HideFlags.HideAndDontSave;
             return sprite;

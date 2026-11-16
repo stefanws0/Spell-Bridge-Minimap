@@ -183,6 +183,101 @@ namespace SpellBrigadeMinimap.Core
             return v >= bottom;
         }
 
+        // ---- objective pieces -------------------------------------------------------------------------------
+
+        static readonly Rgba CapRed = new Rgba(214, 58, 64, 255);
+        static readonly Rgba Cream = new Rgba(240, 232, 210, 255);
+        static readonly Rgba Wood = new Rgba(186, 132, 78, 255);
+        static readonly Rgba Plank = new Rgba(120, 80, 40, 255);
+        static readonly Rgba StoneGrey = new Rgba(150, 152, 160, 255);
+        static readonly Rgba HuntRed = new Rgba(255, 70, 60, 255);
+
+        /// <summary>Outlined shape: <paramref name="fill"/> inside, a dark border <paramref name="t"/> wide.</summary>
+        static PixelBuffer Outlined(int size, Func<float, float, bool> inside, Func<float, float, Rgba> fill, float t) => Render(size, (u, v) =>
+        {
+            if (!inside(u, v)) return Rgba.Clear;
+            float d = t * 0.7f;
+            bool inner = inside(u + t, v) && inside(u - t, v) && inside(u, v + t) && inside(u, v - t)
+                && inside(u + d, v + d) && inside(u - d, v - d) && inside(u + d, v - d) && inside(u - d, v + d);
+            return inner ? fill(u, v) : Border;
+        });
+
+        /// <summary>A collect-objective mushroom: red cap with white spots on a cream stem.</summary>
+        public static PixelBuffer Mushroom(int size) => Outlined(size, InMushroom, (u, v) =>
+        {
+            if (v < 0.42f) return Cream;
+            if (Dist(u, v, 0.33f, 0.63f) < 0.07f || Dist(u, v, 0.58f, 0.74f) < 0.06f || Dist(u, v, 0.72f, 0.56f) < 0.055f) return Rgba.White;
+            return CapRed;
+        }, 0.06f);
+
+        static bool InMushroom(float u, float v)
+        {
+            float ex = (u - 0.5f) / 0.44f, ey = (v - 0.42f) / 0.42f;
+            if (v >= 0.4f && ex * ex + ey * ey <= 1f) return true;                 // dome
+            return RoundBox(u, v, 0.36f, 0.08f, 0.64f, 0.46f, 0.06f);              // stem
+        }
+
+        /// <summary>A push-objective object: a wooden crate with a cross plank.</summary>
+        public static PixelBuffer Crate(int size) => Outlined(size, (u, v) => RoundBox(u, v, 0.12f, 0.12f, 0.88f, 0.88f, 0.1f), (u, v) =>
+        {
+            float a = Math.Abs((u - 0.5f) - (v - 0.5f)), b = Math.Abs((u - 0.5f) + (v - 0.5f));
+            return Math.Min(a, b) < 0.07f ? Plank : Wood;
+        }, 0.07f);
+
+        /// <summary>A herding target: a cream paw print.</summary>
+        public static PixelBuffer Paw(int size) => Outlined(size, InPaw, (u, v) => Cream, 0.05f);
+
+        static bool InPaw(float u, float v)
+        {
+            float ex = (u - 0.5f) / 0.23f, ey = (v - 0.34f) / 0.19f;
+            if (ex * ex + ey * ey <= 1f) return true;
+            return Dist(u, v, 0.25f, 0.6f) < 0.11f || Dist(u, v, 0.41f, 0.75f) < 0.11f
+                || Dist(u, v, 0.59f, 0.75f) < 0.11f || Dist(u, v, 0.75f, 0.6f) < 0.11f;
+        }
+
+        /// <summary>A petrified enemy to break: a grey stone with a crack.</summary>
+        public static PixelBuffer Stone(int size) => Outlined(size, InStone, (u, v) =>
+        {
+            bool crack = SegmentDistance(u, v, 0.44f, 0.82f, 0.54f, 0.56f) < 0.035f
+                      || SegmentDistance(u, v, 0.54f, 0.56f, 0.48f, 0.3f) < 0.035f;
+            return crack ? Border : StoneGrey;
+        }, 0.06f);
+
+        static bool InStone(float u, float v)
+        {
+            float dx = Math.Abs(u - 0.5f), dy = Math.Abs(v - 0.5f);
+            return Math.Max(dx * 0.866f + dy * 0.5f, dy) <= 0.4f;                  // a hexagon
+        }
+
+        /// <summary>A hunt target: a red ring with four ticks and an open middle (the enemy's dot shows through).</summary>
+        public static PixelBuffer Crosshair(int size) => Render(size, (u, v) =>
+        {
+            float r = Distance(u, v);
+            float d = Math.Abs(r - 0.3f);
+            d = Math.Min(d, SegmentDistance(u, v, 0.5f, 0.66f, 0.5f, 0.95f));
+            d = Math.Min(d, SegmentDistance(u, v, 0.5f, 0.05f, 0.5f, 0.34f));
+            d = Math.Min(d, SegmentDistance(u, v, 0.05f, 0.5f, 0.34f, 0.5f));
+            d = Math.Min(d, SegmentDistance(u, v, 0.66f, 0.5f, 0.95f, 0.5f));
+            if (d < 0.035f) return HuntRed;
+            if (d < 0.07f) return Border;
+            return Rgba.Clear;
+        });
+
+        static float Dist(float u, float v, float x, float y) => (float)Math.Sqrt((u - x) * (u - x) + (v - y) * (v - y));
+
+        static bool RoundBox(float u, float v, float x0, float y0, float x1, float y1, float r)
+        {
+            float cx = Math.Max(x0 + r, Math.Min(x1 - r, u)), cy = Math.Max(y0 + r, Math.Min(y1 - r, v));
+            return Dist(u, v, cx, cy) <= r;
+        }
+
+        static float SegmentDistance(float u, float v, float x0, float y0, float x1, float y1)
+        {
+            float dx = x1 - x0, dy = y1 - y0;
+            float t = Math.Max(0f, Math.Min(1f, ((u - x0) * dx + (v - y0) * dy) / (dx * dx + dy * dy)));
+            return Dist(u, v, x0 + t * dx, y0 + t * dy);
+        }
+
         static readonly Rgba WindGrey = new Rgba(200, 204, 212, 255);
 
         /// <summary>A tornado: a light grey funnel, wide at the top, with a dark border and dark swirl lines.</summary>

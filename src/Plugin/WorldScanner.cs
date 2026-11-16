@@ -98,6 +98,8 @@ namespace SpellBrigadeMinimap
         float nextEnemyScan, nextPoiScan, nextFeatureScan;
         bool featuresLogged;
 
+        /// <summary>The running objectives' pieces, zones, counts and hunt targets.</summary>
+        public readonly ObjectivePieces Objectives = new ObjectivePieces();
         OrderObjective orderObjective;
         float nextOrderLookup;
         bool orderLogged;
@@ -127,6 +129,7 @@ namespace SpellBrigadeMinimap
             eliteTypes.Clear();
             Bosses.Clear();
             orderObjective = null;
+            Objectives.Reset();
             nextOrderLookup = 0f;
             orderLogged = false;
             pillarOfTarget.Clear();
@@ -359,6 +362,7 @@ namespace SpellBrigadeMinimap
             Pois.Clear();
             pillarsWithPointers.Clear();
             ulong group = OrderObjectiveKey();
+            Objectives.Scan(Time.unscaledTime);
             var spm = ScreenPointerManager.Instance;
             var pointers = spm != null ? spm.activePointers : null;
             if (pointers != null)
@@ -368,6 +372,7 @@ namespace SpellBrigadeMinimap
                     ScreenPointer sp = kv.Value;
                     if (target == null || sp == null) continue;
                     if (!TryKind(sp.pointerType, out PoiKind kind)) continue;
+                    if (kind == PoiKind.Objective && Objectives.IsPiece(target)) continue; // drawn as its piece icon
 
                     var poi = new Poi { Target = target, Kind = kind, Color = Color.white, Key = KeyOf(target) };
                     var images = sp.iconImages;

@@ -1,6 +1,6 @@
 {
   "name": "SpellBrigadeMinimap",
-  "version_number": "1.0.1",
+  "version_number": "1.0.2",
   "website_url": "",
   "description": "A round corner minimap in the game's HUD style: a pixel picture of the arena with its rocks and walls, enemies by rank, bosses, objectives, pickups, teammates, geysers, tornadoes and portals.",
   "dependencies": [

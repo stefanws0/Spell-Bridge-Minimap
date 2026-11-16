@@ -19,6 +19,9 @@ namespace SpellBrigadeMinimap
         public void Begin() => used = 0;
 
         public void Place(Sprite sprite, Color color, Vector2 position, float size, float rotation)
+            => Place(sprite, color, position, new Vector2(size, size), rotation);
+
+        public void Place(Sprite sprite, Color color, Vector2 position, Vector2 size, float rotation)
         {
             Image img;
             if (used < images.Count) img = images[used];
@@ -33,7 +36,7 @@ namespace SpellBrigadeMinimap
             if (img.color != color) img.color = color;
             var rt = img.rectTransform;
             rt.anchoredPosition = position;
-            rt.sizeDelta = new Vector2(size, size);
+            rt.sizeDelta = size;
             rt.localEulerAngles = new Vector3(0f, 0f, rotation);
             if (!img.enabled) img.enabled = true;
         }

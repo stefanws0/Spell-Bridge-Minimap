@@ -20,6 +20,8 @@ A round minimap in the corner of the screen during runs, framed like the game's 
 - **Tornadoes** on the fire map, following them as they move.
 - **Teleport portals** on the astral map: bright cyan when open, faint when closed.
 - **The order objective's mushrooms** in the game's colours: blue while waiting, green when hit in the right order, red when wrong.
+- **Objective pieces**: the collect objective's mushrooms (following them as they run), the objects to push and the animals to herd (with a faint dotted line to their zone, faded once they're in), and the stone enemies to break. The push zone and the herding pen are drawn at their real size, and a counter at the top shows how many are done ("3/8").
+- **Hunt targets** get a red crosshair that follows them, pinned to the edge when they're off the map.
 - **MoreEvents** targets and zones, if that mod is installed.
 
 The map turns with the camera, so up on the minimap is up on screen. It moves up out of the way when the game's HUD (collected artifacts, the revive counter) or another mod's panel sits in its corner, and back down when that's gone.
@@ -52,5 +54,6 @@ Install it if you want to see a minimap; nobody else needs it. The only thing it
 
 ## Changelog
 
+- **1.0.2**: objective pieces with guide lines and counters, zones at real size, hunt-target crosshair.
 - **1.0.1**: moves out of the way of the game's HUD in its corner; dead teammates as ghosts in their colour; your arrow turns while you're a ghost; order-objective mushrooms coloured by state; the fire map's arena edge.
 - **1.0.0**: first release.
