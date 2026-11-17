@@ -65,7 +65,7 @@ namespace SpellBrigadeMinimap
             }
             if (rm.Pointer != runPtr) StartRun(rm);
 
-            scanner.SkipPointerName = cfg.ShowTreasure.Value && treasureBridge.Available ? treasureBridge.PointerTargetName : null;
+            scanner.SkipPointerName = treasureBridge.Available ? treasureBridge.PointerTargetName : null;
             scanner.Tick(now, cfg.ShowEnemies.Value, cfg.ShowObjectives.Value || cfg.ShowPickups.Value, cfg.ShowMapFeatures.Value);
             discovery.Tick(now, scanner.Pois);
 

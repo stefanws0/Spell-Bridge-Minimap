@@ -8,7 +8,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DebugType>none</DebugType>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <!-- Override with -p:BepInExDir=... for another profile or a game-folder install. -->
     <BepInExDir Condition="'$(BepInExDir)' == ''">$(APPDATA)\r2modmanPlus-local\TheSpellBrigade\profiles\Default\BepInEx</BepInExDir>
   </PropertyGroup>
