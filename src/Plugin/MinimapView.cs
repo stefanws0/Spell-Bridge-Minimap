@@ -265,7 +265,8 @@ namespace SpellBrigadeMinimap
                 // The circle is off the map entirely: pin the treasure icon to the edge, pointing at it.
                 NVec2 tp = MapMath.WorldToPanel(view, treasure.Center);
                 float tr = treasure.Radius * scale;
-                bool apart = round ? tp.Length() - tr > half : Mathf.Abs(tp.X) - tr > half || Mathf.Abs(tp.Y) - tr > half;
+                float gapX = Mathf.Max(Mathf.Abs(tp.X) - half, 0f), gapY = Mathf.Max(Mathf.Abs(tp.Y) - half, 0f);
+                bool apart = round ? tp.Length() - tr > half : gapX * gapX + gapY * gapY > tr * tr;
                 if (apart)
                     DrawPoint(treasure.Icon != null ? treasure.Icon : disc, treasure.Icon != null ? Color.white : treasure.Orange,
                         tp, TreasurePieceSize, half, clamp: true);
