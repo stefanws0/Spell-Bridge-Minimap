@@ -92,25 +92,6 @@ namespace SpellBrigadeMinimap
             }
         }
 
-        /// <summary>Treasure Maps' map pieces on the ground: found once someone has had them on screen.</summary>
-        public void TickTreasure(TreasureView treasure)
-        {
-            if (treasure.PiecesWorld.Count == 0) return;
-            NetworkManager nm = null;
-            try { nm = NetworkManager.Singleton; }
-            catch { }
-            var cam = Camera.main;
-            if (cam == null) return;
-            foreach (var world in treasure.PiecesWorld)
-            {
-                ulong key = WorldScanner.KeyOfPosition(world);
-                if (known.Contains(key) || !OnScreen(cam, world)) continue;
-                known.Add(key);
-                if (foundLogs++ < MaxFoundLogs) Mod.Log.LogInfo($"Treasure map piece at {world.x:0},{world.z:0} found: on screen.");
-                Share(nm, key.ToString("x"));
-            }
-        }
-
         void TryFind(Piece piece, ObjectivePieces pieces, Camera cam, NetworkManager nm)
         {
             if (piece.Target == null || known.Contains(piece.Key)) return;

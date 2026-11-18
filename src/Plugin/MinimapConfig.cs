@@ -18,7 +18,7 @@ namespace SpellBrigadeMinimap
         public readonly ConfigEntry<float> Size, Margin, BottomOffset, Opacity;
         public readonly ConfigEntry<float> Radius, MinRadius, MaxRadius, BigEnemyHealth, HeavyEnemyHealth;
         public readonly ConfigEntry<bool> RotateWithCamera, AvoidGameHud;
-        public readonly ConfigEntry<bool> ShowEnemies, ShowObjectives, ShowPickups, ShowTeammates, ShowMoreEvents, ShowMapFeatures, ShowTreasure;
+        public readonly ConfigEntry<bool> ShowEnemies, ShowObjectives, ShowPickups, ShowTeammates, ShowMoreEvents, ShowMapFeatures;
         public readonly ConfigEntry<bool> HideUndiscoveredObjectives, SaveDebugImages;
 
         public MinimapConfig(ConfigFile f)
@@ -67,8 +67,7 @@ namespace SpellBrigadeMinimap
             ShowTeammates = f.Bind("Layers", "ShowTeammates", true, "Other players.");
             ShowMoreEvents = f.Bind("Layers", "ShowMoreEvents", true, "MoreEvents targets and zones (only when MoreEvents is installed).");
             ShowMapFeatures = f.Bind("Layers", "ShowMapFeatures", true, "Geysers on the ice map (yellow bursts), tornadoes on the fire map (following them as they move) and teleport portals (bright when open).");
-            ShowTreasure = f.Bind("Layers", "ShowTreasure", true, "Treasure Maps hunts: the search circle and map pieces on the ground (only when Treasure Maps is installed).");
-            HideUndiscoveredObjectives = f.Bind("Layers", "HideUndiscoveredObjectives", true, "Only show an objective, each of its pieces (every mushroom, object to push, llama, statue and hunt target on its own), its zone or pen, and each pickup (artifacts, magnets, potions) and treasure map piece, once someone in the party has had it on screen, or once the game points at it from the edge of the screen. Discoveries are shared with other players who run this mod, through the host.");
+            HideUndiscoveredObjectives = f.Bind("Layers", "HideUndiscoveredObjectives", true, "Only show an objective, each of its pieces (every mushroom, object to push, llama, statue and hunt target on its own), its zone or pen, and each pickup (artifacts, magnets, potions), once someone in the party has had it on screen, or once the game points at it from the edge of the screen. Discoveries are shared with other players who run this mod, through the host.");
 
             SaveDebugImages = f.Bind("Debug", "SaveDebugImages", false, "Save the level picture, the game-view colour sample and the finished minimap as PNGs in BepInEx/minimap-debug each run.");
         }

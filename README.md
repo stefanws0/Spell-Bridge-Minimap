@@ -2,7 +2,7 @@
 
 A round minimap for **The Spell Brigade**, in the corner of the screen during runs and framed like the game's own HUD rings. A BepInEx 6 (IL2CPP) mod.
 
-**Install:** [StrayingFox / SpellBrigadeMinimap on Thunderstore](https://thunderstore.io/c/the-spell-brigade/p/StrayingFox/SpellBrigadeMinimap/) (r2modman or Thunderstore Mod Manager). Current version: **1.2.0**.
+**Install:** [StrayingFox / SpellBrigadeMinimap on Thunderstore](https://thunderstore.io/c/the-spell-brigade/p/StrayingFox/SpellBrigadeMinimap/) (r2modman or Thunderstore Mod Manager). Current version: **1.2.1**.
 
 The full player guide (everything on the map, keys, config and changelog) is the Thunderstore page's README: [`thunderstore/README.md`](thunderstore/README.md).
 
@@ -11,10 +11,10 @@ The full player guide (everything on the map, keys, config and changelog) is the
 - **The level itself** as a pixel picture taken from above as you drop in. Only the arena is drawn, and rocks and walls are solid black.
 - **Enemies by rank**: red circles, orange triangles, pink squares (heavy), purple stars (mini-bosses), and a skull for bosses.
 - **Objectives and their pieces** with the game's own icons, coloured per objective. Each one only appears once someone in the party has had it on screen, or once the game points at it from the edge of the screen. Discoveries are shared through the host with everyone running the mod.
-- **Pickups, teammates (ghosts when dead), geysers, tornadoes and portals**, plus **MoreEvents** and **Treasure Maps** hunts when those mods are installed.
+- **Pickups, teammates (ghosts when dead), geysers, tornadoes and portals**, plus **MoreEvents** targets when that mod is installed.
 - It turns with the camera, zooms with `=` and `-`, hides with `M`, and moves out of the way of the game's HUD in its corner.
 
-![Every objective's icon on the minimap, before and in 1.2.0](docs/previews/objective-icons.png)
+![Every objective's icon on the minimap, before and since 1.2.0](docs/previews/objective-icons.png)
 
 ## Development
 

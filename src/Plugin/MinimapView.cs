@@ -72,7 +72,6 @@ namespace SpellBrigadeMinimap
         static readonly Rgba CounterText = new Rgba(253, 248, 206);
         static readonly Rgba CounterPill = new Rgba(24, 24, 26, 235);
         const float GhostSize = 16f, PillarSize = 18f;
-        const float TreasurePieceSize = 16f, TreasureFillAlpha = 0.13f;
         // Objective colours (the game's icons are white copies the minimap tints): blue for most, the herding pen
         // green, objects to push yellow until they're in the zone, the hunt target gold, the sacrifice red, and the
         // clean objective its goo's colour (ObjectivePieces.GooColour).
@@ -195,7 +194,7 @@ namespace SpellBrigadeMinimap
             layout.enabled = baked != null;
         }
 
-        public void Render(WorldScanner s, List<EventMarker> markers, TreasureView treasure, ObjectiveDiscovery discovery, float yaw, float radius)
+        public void Render(WorldScanner s, List<EventMarker> markers, ObjectiveDiscovery discovery, float yaw, float radius)
         {
             lift = cfg.AvoidGameHud.Value
                 ? hud.Tick(Time.unscaledTime, Time.unscaledDeltaTime, HomeScreenBox(out bool bottom), bottom, canvas,
@@ -233,19 +232,6 @@ namespace SpellBrigadeMinimap
                     zones.Place(roundShape, WithAlpha(c, ZoneFillAlpha), at, z.Radius * 2f * scale, 0f);
                     zones.Place(ring, WithAlpha(c, ZoneRingAlpha), at, z.Radius * 2f * scale, 0f);
                 }
-            if (treasure.Active && treasure.Radius > 0f)
-            {
-                // The search circle at its real size: a faint orange fill (inside the ring's band) and the game's ring
-                // in artifact orange, a little see-through so the layout shows through the thick band.
-                Vector2 at = ToUnity(MapMath.WorldToPanel(view, treasure.Center));
-                float d = treasure.Radius * 2f * scale;
-                var fillColor = treasure.Orange;
-                fillColor.a = TreasureFillAlpha;
-                var ringColor = treasure.Orange;
-                ringColor.a = 0.9f;
-                zones.Place(roundShape, fillColor, at, d * 0.9f, 0f);
-                zones.Place(treasure.Circle != null ? treasure.Circle : ring, ringColor, at, d, 0f);
-            }
             if (cfg.ShowMapFeatures.Value)
                 foreach (var g in s.Geysers)
                     if (g.State != GeyserState.Erupting)
@@ -274,14 +260,6 @@ namespace SpellBrigadeMinimap
             {
                 DrawPieces(s.Objectives, view, discovery);
                 DrawZoneIcons(s.Objectives, view, discovery);
-            }
-            for (int i = 0; i < treasure.Pieces.Count; i++)
-            {
-                // Treasure map pieces once someone has had them on screen.
-                if (cfg.HideUndiscoveredObjectives.Value && i < treasure.PiecesWorld.Count
-                    && !discovery.IsKnown(WorldScanner.KeyOfPosition(treasure.PiecesWorld[i]))) continue;
-                DrawFeature(icons, treasure.Icon != null ? treasure.Icon : disc, treasure.Icon != null ? Color.white : treasure.Orange,
-                    treasure.Pieces[i], view, TreasurePieceSize);
             }
 
             foreach (var poi in s.Pois)
@@ -315,17 +293,6 @@ namespace SpellBrigadeMinimap
                     if (huntIcon != null) DrawIcon(hp, ObjectiveIconSize, half, HuntGold, huntIcon, pin: true);
                     else DrawPoint(crosshair, Color.white, hp, CrosshairSize, half, clamp: true);
                 }
-            if (treasure.Active && treasure.Radius > 0f)
-            {
-                // The circle is off the map entirely: pin the treasure icon to the edge, pointing at it.
-                NVec2 tp = MapMath.WorldToPanel(view, treasure.Center);
-                float tr = treasure.Radius * scale;
-                float gapX = Mathf.Max(Mathf.Abs(tp.X) - half, 0f), gapY = Mathf.Max(Mathf.Abs(tp.Y) - half, 0f);
-                bool apart = round ? tp.Length() - tr > half : gapX * gapX + gapY * gapY > tr * tr;
-                if (apart)
-                    DrawPoint(treasure.Icon != null ? treasure.Icon : disc, treasure.Icon != null ? Color.white : treasure.Orange,
-                        tp, TreasurePieceSize, half, clamp: true);
-            }
             if (cfg.ShowMoreEvents.Value)
                 foreach (var m in markers)
                     if (!m.Zone) DrawPoint(diamond, m.Color, MapMath.WorldToPanel(view, m.Pos), 16f, half, clamp: true);

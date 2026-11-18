@@ -176,9 +176,6 @@ namespace SpellBrigadeMinimap
             AddElites(rm.astralPlanesConfiguration);
         }
 
-        /// <summary>A pointer target to leave out because another layer draws it (null: skip none).</summary>
-        public string SkipPointerName;
-
         public void Tick(float now, bool wantEnemies, bool wantPois, bool wantFeatures)
         {
             ScanPlayers();
@@ -403,7 +400,6 @@ namespace SpellBrigadeMinimap
                     ScreenPointer sp = kv.Value;
                     if (target == null || sp == null) continue;
                     bool shown = IsShowing(sp);
-                    if (SkipPointerName != null && target.name == SkipPointerName) continue; // Treasure Maps' pointer; drawn as its circle
                     if (!TryKind(sp.pointerType, out PoiKind kind))
                     {
                         notes.Observe(target, sp, shown, "a player (drawn as a teammate)", now);
