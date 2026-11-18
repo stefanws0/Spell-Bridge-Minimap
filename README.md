@@ -53,3 +53,7 @@ The mod reads game objects each frame and patches nothing: broad Harmony patches
 1. Set the same version in `thunderstore/manifest.json`, `src/Plugin/Plugin.cs` (`Version`) and `src/Plugin/SpellBrigadeMinimap.csproj` (`<Version>`), and add a line to the changelog at the end of `thunderstore/README.md`.
 2. Build the package: `powershell -ExecutionPolicy Bypass -File package.ps1`. It checks the three versions match and writes `dist/Minimap-<version>.zip`.
 3. Upload the zip at [thunderstore.io/package/create](https://thunderstore.io/package/create/): team **StrayingFox**, community **The Spell Brigade**, category **Mods**.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
