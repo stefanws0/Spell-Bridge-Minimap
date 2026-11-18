@@ -55,6 +55,7 @@ Install it if you want to see a minimap; nobody else needs it. The only thing it
 
 ## Changelog
 
+- **1.2.3**: a new icon.
 - **1.2.2**: an objective now shows on the minimap the moment the game flashes or shows its icon at the edge of the screen. The minimap read the wrong signal for that, so until now objectives only appeared once someone had them on screen.
 - **1.2.1**: removes the Treasure Maps layer (its search circle and map pieces) and the `ShowTreasure` setting.
 - **1.2.0**: everything the game points at from the edge of the screen is on the minimap too. An objective shows as soon as the game points at it (before, it waited until someone had it on screen), and objectives, mushrooms and pieces the game points at stick to the minimap's edge when they're out of range. Enemies get a shape per rank (circle, triangle, square, star) with a new heavy rank (pink squares; setting `HeavyEnemyHealth`), and the game's hidden "!" danger pointers are no longer drawn on enemies. Every objective and piece is drawn with the game's own icon and a dark edge, coloured per objective (blue for most; the herding pen green; objects to push yellow until they're in the zone; statues grey with blue eyes; the hunt target gold; the sacrifice red; the clean objective in its goo's colour). Each piece, zone, pickup and Treasure Maps map piece now stays hidden until someone has had it on screen or the game points at it, one by one (a whole order objective no longer appears when one bonfire is found). The counters use the game's font.

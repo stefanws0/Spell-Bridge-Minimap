@@ -2,7 +2,7 @@
 
 A round minimap for **The Spell Brigade**, in the corner of the screen during runs and framed like the game's own HUD rings. A BepInEx 6 (IL2CPP) mod.
 
-**Install:** [StrayingFox / SpellBrigadeMinimap on Thunderstore](https://thunderstore.io/c/the-spell-brigade/p/StrayingFox/SpellBrigadeMinimap/) (r2modman or Thunderstore Mod Manager). Current version: **1.2.2**.
+**Install:** [StrayingFox / SpellBrigadeMinimap on Thunderstore](https://thunderstore.io/c/the-spell-brigade/p/StrayingFox/SpellBrigadeMinimap/) (r2modman or Thunderstore Mod Manager). Current version: **1.2.3**.
 
 The full player guide (everything on the map, keys, config and changelog) is the Thunderstore page's README: [`thunderstore/README.md`](thunderstore/README.md).
 

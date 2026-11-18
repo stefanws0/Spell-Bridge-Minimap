@@ -8,7 +8,7 @@ namespace SpellBrigadeMinimap
     {
         public const string Guid = "SpellBrigadeMinimap";
         public const string Name = "Minimap";
-        public const string Version = "1.2.2";
+        public const string Version = "1.2.3";
 
         public override void Load()
         {
