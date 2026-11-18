@@ -47,7 +47,7 @@ The map turns with the camera, so up on the minimap is up on screen. It moves up
 
 ## Multiplayer
 
-Install it if you want to see a minimap; nobody else needs it. The only thing it sends over the network is which objectives have been found, and only to players who also run it. If the host doesn't run it, each player's minimap shows just the objectives they found themselves.
+Install it if you want to see a minimap; nobody else needs it. The only thing it sends over the network is which objectives, pieces, pickups and map pieces have been found, and only to players who also run it. If the host doesn't run it, each player's minimap shows just what they found themselves.
 
 ## Notes
 
