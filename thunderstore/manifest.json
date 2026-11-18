@@ -1,7 +1,7 @@
 {
-  "name": "Spell_Brigade_Minimap",
+  "name": "Minimap",
   "version_number": "1.2.3",
-  "website_url": "",
+  "website_url": "https://github.com/stefanws0/Spell-Bridge-Minimap",
   "description": "A round corner minimap in the game's HUD style: a pixel picture of the arena with its rocks and walls, enemies by rank, bosses, objectives, pickups, teammates, geysers, tornadoes and portals.",
   "dependencies": [
     "BepInEx-BepInExPack_IL2CPP-6.0.788"

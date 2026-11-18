@@ -23,7 +23,7 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item "$root\thunderstore\manifest.json", "$root\thunderstore\README.md", "$root\thunderstore\icon.png" $stage
 Copy-Item "$root\src\Plugin\bin\Release\net6.0\SpellBrigadeMinimap.dll" $stage
 
-$zip = Join-Path $root ("dist\SpellBrigadeMinimap-" + $manifest.version_number + ".zip")
+$zip = Join-Path $root ("dist\Minimap-" + $manifest.version_number + ".zip")
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path "$stage\*" -DestinationPath $zip
 Remove-Item $stage -Recurse -Force

@@ -2,7 +2,7 @@
 
 A round minimap for **The Spell Brigade**, in the corner of the screen during runs and framed like the game's own HUD rings. A BepInEx 6 (IL2CPP) mod.
 
-**Install:** [StrayingFox / Spell Brigade Minimap on Thunderstore](https://thunderstore.io/c/the-spell-brigade/p/StrayingFox/Spell_Brigade_Minimap/) (r2modman or Thunderstore Mod Manager). Current version: **1.2.3**.
+**Install:** [StrayingFox / Minimap on Thunderstore](https://thunderstore.io/c/the-spell-brigade/p/StrayingFox/Minimap/) (r2modman or Thunderstore Mod Manager). Current version: **1.2.3**.
 
 The full player guide (everything on the map, keys, config and changelog) is the Thunderstore page's README: [`thunderstore/README.md`](thunderstore/README.md).
 
@@ -44,12 +44,12 @@ dotnet run --project tests/Core.Tests -c Release
 
 ### Try it in the game
 
-Copy `src/Plugin/bin/Release/net6.0/SpellBrigadeMinimap.dll` into the profile's `BepInEx\plugins\StrayingFox-Spell_Brigade_Minimap\`. With the game running, the DLL is locked: rename it to `..\SpellBrigadeMinimap-<time>.dll.old` first (BepInEx skips `.old` files), copy the new one in, restart the game, and delete the `.old` once the game is closed. The mod logs what it finds to `BepInEx\LogOutput.log`; `[Debug] SaveDebugImages` also saves its pictures and the game icons it read to `BepInEx\minimap-debug`.
+Copy `src/Plugin/bin/Release/net6.0/SpellBrigadeMinimap.dll` into the profile's `BepInEx\plugins\StrayingFox-Minimap\`. With the game running, the DLL is locked: rename it to `..\SpellBrigadeMinimap-<time>.dll.old` first (BepInEx skips `.old` files), copy the new one in, restart the game, and delete the `.old` once the game is closed. The mod logs what it finds to `BepInEx\LogOutput.log`; `[Debug] SaveDebugImages` also saves its pictures and the game icons it read to `BepInEx\minimap-debug`.
 
 The mod reads game objects each frame and patches nothing: broad Harmony patches of game methods crashed the game. A patch, if ever needed, must be on one concrete method that has its own native code.
 
 ### Release
 
 1. Set the same version in `thunderstore/manifest.json`, `src/Plugin/Plugin.cs` (`Version`) and `src/Plugin/SpellBrigadeMinimap.csproj` (`<Version>`), and add a line to the changelog at the end of `thunderstore/README.md`.
-2. Build the package: `powershell -ExecutionPolicy Bypass -File package.ps1`. It checks the three versions match and writes `dist/SpellBrigadeMinimap-<version>.zip`.
+2. Build the package: `powershell -ExecutionPolicy Bypass -File package.ps1`. It checks the three versions match and writes `dist/Minimap-<version>.zip`.
 3. Upload the zip at [thunderstore.io/package/create](https://thunderstore.io/package/create/): team **StrayingFox**, community **The Spell Brigade**, category **Mods**.
