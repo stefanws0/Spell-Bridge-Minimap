@@ -26,7 +26,7 @@ namespace SpellBrigadeMinimap
         static CustomMessagingManager.HandleNamedMessageDelegate handler; // kept alive for IL2CPP
         static ObjectiveDiscovery current;
 
-        const int MaxFoundLogs = 12;         // per run
+        const int MaxFoundLogs = 40;         // per run (location pings count too)
 
         readonly DiscoverySet known = new DiscoverySet();
         IntPtr registeredOn;

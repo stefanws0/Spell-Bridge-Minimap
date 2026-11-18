@@ -115,21 +115,18 @@ namespace SpellBrigadeMinimap
                 $"highlighted off screen {sp.highlightOffScreenBehaviour}, on screen {sp.highlightOnScreenBehaviour}.");
         }
 
-        /// <summary>The pointer animator's own "is shown" flag, as a cross-check on <c>wasShown</c>.</summary>
+        /// <summary>Which of the pointer's own signals say it shows: the animator, its highlight, <c>wasShown</c>.</summary>
         string AnimatorNote(ScreenPointer sp)
         {
             if (animatorBroken) return "";
             try
             {
-                var ap = sp.animationPlayer;
-                var an = ap != null ? ap.animator : null;
-                if (an == null || !an.isActiveAndEnabled) return " (no animator)";
-                return an.GetBool(ScreenPointerAnimationPlayer.IsShownParameter) ?" (animator: shown)" : " (animator: hidden)";
+                return $" (animator {(WorldScanner.AnimatorShows(sp) ? "shown" : "hidden")}, highlighted {(sp.isHighlighted ? "yes" : "no")}, wasShown {(sp.wasShown ? "yes" : "no")})";
             }
             catch (Exception e)
             {
                 animatorBroken = true;
-                LogOnce.Error("reading a pointer's animator", e);
+                LogOnce.Error("reading a pointer's signals", e);
                 return "";
             }
         }

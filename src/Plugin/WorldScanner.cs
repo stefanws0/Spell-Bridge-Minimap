@@ -634,14 +634,40 @@ namespace SpellBrigadeMinimap
         }
 
         /// <summary>
-        /// Whether the game is drawing this pointer right now. <c>wasShown</c> is the pointer's own record of whether it
-        /// showed itself last frame; it follows the pointer's off-screen and on-screen rules (shown at once, after a
-        /// delay, on a ping and so on). A plain field read, no call into the game.
+        /// Whether the game is drawing this pointer right now: it's highlighted (the flash when an objective appears
+        /// or is pinged, which shows even before an objective pointer's delay is up), its animator's "is shown" flag
+        /// is on (what the player sees, set by the pointer's off-screen and on-screen rules), or <c>wasShown</c> is
+        /// set. Before 1.2.2 only <c>wasShown</c> was read, and it never came on in the test runs. Plain reads, no
+        /// patches.
         /// </summary>
         static bool IsShowing(ScreenPointer sp)
         {
-            try { return sp.wasShown; }
+            try
+            {
+                if (sp.isHighlighted || sp.wasShown) return true;
+                return AnimatorShows(sp);
+            }
             catch (Exception e) { LogOnce.Error("reading whether a screen pointer is shown", e); return false; }
+        }
+
+        static bool animatorBroken;
+
+        /// <summary>The pointer animator's "is shown" flag (false if it has no active animator).</summary>
+        internal static bool AnimatorShows(ScreenPointer sp)
+        {
+            if (animatorBroken) return false;
+            try
+            {
+                var ap = sp.animationPlayer;
+                var an = ap != null ? ap.animator : null;
+                return an != null && an.isActiveAndEnabled && an.GetBool(ScreenPointerAnimationPlayer.IsShownParameter);
+            }
+            catch (Exception e)
+            {
+                animatorBroken = true;
+                LogOnce.Error("reading a pointer's animator (falling back to its highlight and wasShown)", e);
+                return false;
+            }
         }
 
         /// <summary>
