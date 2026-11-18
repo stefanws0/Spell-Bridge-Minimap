@@ -23,6 +23,13 @@ namespace SpellBrigadeMinimap
 
     internal enum PoiKind { Objective, Boss, Downed, Danger, Pickup, Health }
 
+    /// <summary>An enemy the game is pointing at from the screen edge, with its rank.</summary>
+    internal struct PointedEnemy
+    {
+        public Transform Target;
+        public EnemyRank Rank;
+    }
+
     internal enum FeatureKind { Portal }
 
     /// <summary>A fixed part of the level worth marking (a teleport portal).</summary>
@@ -52,9 +59,12 @@ namespace SpellBrigadeMinimap
         public ulong Key;
         public Sprite Sprite;
         public Color Color;
-        /// <summary>An order objective's mushroom (coloured by its state), and that objective's key.</summary>
+        /// <summary>An order objective's mushroom (coloured by its state).</summary>
         public OrderObjectiveInteractable Pillar;
-        public ulong GroupKey;
+        /// <summary>The game is showing its pointer at this right now (at the screen edge, or over it on screen).</summary>
+        public bool Shown;
+        /// <summary>A white copy of the game's icon (with a dark edge), for objectives the minimap colours itself.</summary>
+        public Sprite WhiteSprite;
 
         public bool ClampToEdge => Kind == PoiKind.Objective || Kind == PoiKind.Boss || Kind == PoiKind.Downed;
     }
@@ -100,6 +110,8 @@ namespace SpellBrigadeMinimap
 
         /// <summary>The running objectives' pieces, zones, counts and hunt targets.</summary>
         public readonly ObjectivePieces Objectives = new ObjectivePieces();
+        /// <summary>A log of what the game's screen pointers do (for checking in game).</summary>
+        readonly PointerNotes notes = new PointerNotes();
         OrderObjective orderObjective;
         float nextOrderLookup;
         bool orderLogged;
@@ -111,7 +123,11 @@ namespace SpellBrigadeMinimap
 
         /// <summary>Bosses right now (drawn as their own icon, not a dot).</summary>
         public readonly List<NVec2> Bosses = new List<NVec2>();
-        EnemyRanker ranker = new EnemyRanker(3f, SwarmMinCount);
+        /// <summary>Enemies the game points at from the screen edge right now (drawn by their rank's mark, pinned to the edge off the map).</summary>
+        public readonly List<PointedEnemy> PointedEnemies = new List<PointedEnemy>();
+        readonly Dictionary<IntPtr, Enemy> enemyOfTarget = new Dictionary<IntPtr, Enemy>();
+        readonly Dictionary<IntPtr, bool> pieceObjectTargets = new Dictionary<IntPtr, bool>();
+        EnemyRanker ranker = new EnemyRanker(3f, 8f, SwarmMinCount);
         readonly Dictionary<int, EnemyTypeInfo> typeInfo = new Dictionary<int, EnemyTypeInfo>();
         static readonly HashSet<int> loggedTypes = new HashSet<int>();
         readonly List<(Vector3 pos, EnemyTypeInfo info)> scanned = new List<(Vector3, EnemyTypeInfo)>();
@@ -130,12 +146,17 @@ namespace SpellBrigadeMinimap
             Bosses.Clear();
             orderObjective = null;
             Objectives.Reset();
+            GameIcons.Reset();
+            notes.Reset();
             nextOrderLookup = 0f;
             orderLogged = false;
             pillarOfTarget.Clear();
             ghostPosValid = false;
             typeInfo.Clear();
-            ranker = new EnemyRanker(Mod.Settings.BigEnemyHealth.Value, SwarmMinCount);
+            ranker = new EnemyRanker(Mod.Settings.BigEnemyHealth.Value, Mod.Settings.HeavyEnemyHealth.Value, SwarmMinCount);
+            PointedEnemies.Clear();
+            enemyOfTarget.Clear();
+            pieceObjectTargets.Clear();
             Players.Clear();
             Enemies.Clear();
             Pois.Clear();
@@ -186,7 +207,11 @@ namespace SpellBrigadeMinimap
                 ScanEnemies();
             }
 
-            if (!wantPois) Pois.Clear();
+            if (!wantPois)
+            {
+                Pois.Clear();
+                PointedEnemies.Clear();
+            }
             else if (now >= nextPoiScan)
             {
                 nextPoiScan = now + PoiInterval;
@@ -324,7 +349,7 @@ namespace SpellBrigadeMinimap
             float swarmBefore = ranker.SwarmHealth;
             ranker.EndScan();
             if (ranker.SwarmHealth != swarmBefore)
-                Mod.Log.LogInfo($"Swarm enemies have {ranker.SwarmHealth:0.#} base health; {Mod.Settings.BigEnemyHealth.Value:0.#}x that or more is drawn as a big enemy.");
+                Mod.Log.LogInfo($"Swarm enemies have {ranker.SwarmHealth:0.#} base health; {Mod.Settings.BigEnemyHealth.Value:0.#}x that or more is drawn as a big enemy, {Mod.Settings.HeavyEnemyHealth.Value:0.#}x as a heavy one.");
 
             foreach (var (pos, info) in scanned)
             {
@@ -363,10 +388,13 @@ namespace SpellBrigadeMinimap
         void ScanPois()
         {
             Pois.Clear();
+            PointedEnemies.Clear();
             pillarsWithPointers.Clear();
-            ulong group = OrderObjectiveKey();
-            Objectives.Scan(Time.unscaledTime);
+            RefreshOrderObjective();
+            float now = Time.unscaledTime;
+            Objectives.Scan(now);
             var spm = ScreenPointerManager.Instance;
+            notes.Setup(spm);
             var pointers = spm != null ? spm.activePointers : null;
             if (pointers != null)
                 foreach (var kv in pointers)
@@ -374,30 +402,53 @@ namespace SpellBrigadeMinimap
                     Transform target = kv.Key;
                     ScreenPointer sp = kv.Value;
                     if (target == null || sp == null) continue;
+                    bool shown = IsShowing(sp);
                     if (SkipPointerName != null && target.name == SkipPointerName) continue; // Treasure Maps' pointer; drawn as its circle
-                    if (!TryKind(sp.pointerType, out PoiKind kind)) continue;
-                    if (kind == PoiKind.Objective && Objectives.IsPiece(target)) continue; // drawn as its piece icon
+                    if (!TryKind(sp.pointerType, out PoiKind kind))
+                    {
+                        notes.Observe(target, sp, shown, "a player (drawn as a teammate)", now);
+                        continue;
+                    }
+                    Sprite icon = FirstIcon(sp, out Color iconColor);
+                    if (kind == PoiKind.Objective) GameIcons.Offer(icon);
+                    if (kind == PoiKind.Objective && Objectives.ClaimPointer(target, shown, icon))
+                    {
+                        notes.Observe(target, sp, shown, "an objective piece (drawn as its piece icon)", now);
+                        continue;
+                    }
+                    if (kind == PoiKind.Objective && IsPieceObject(target))
+                    {
+                        // A piece whose objective the minimap hasn't picked up yet (it looks objectives up once a
+                        // second): skip it rather than draw the game's icon for one moment.
+                        notes.Observe(target, sp, shown, "an objective piece not listed yet (skipped)", now);
+                        continue;
+                    }
+                    if (kind == PoiKind.Objective && Objectives.IsHuntTarget(target, shown))
+                    {
+                        notes.Observe(target, sp, shown, "a hunt target (drawn as the game's hunt icon)", now);
+                        continue;
+                    }
+                    if ((kind == PoiKind.Danger || kind == PoiKind.Boss) && TryEnemyPointer(target, shown, out EnemyRank rank))
+                    {
+                        // The game's "!" (or boss pointer) on an ordinary enemy: the enemy's own mark shows it instead.
+                        notes.Observe(target, sp, shown, $"an enemy ({rank}, drawn as its mark)", now);
+                        continue;
+                    }
+                    notes.Observe(target, sp, shown, kind.ToString(), now);
 
-                    var poi = new Poi { Target = target, Kind = kind, Color = Color.white, Key = KeyOf(target) };
-                    var images = sp.iconImages;
-                    if (images != null)
-                        for (int i = 0; i < images.Count; i++)
-                        {
-                            var img = images[i];
-                            if (img != null && img.sprite != null)
-                            {
-                                poi.Sprite = img.sprite;
-                                poi.Color = img.color;
-                                break;
-                            }
-                        }
+                    var poi = new Poi
+                    {
+                        Target = target, Kind = kind, Key = KeyOf(target), Shown = shown,
+                        Sprite = icon, Color = icon != null ? iconColor : Color.white,
+                    };
+                    // Objectives are drawn as a white copy of the game's icon, coloured by the minimap.
+                    if (kind == PoiKind.Objective) poi.WhiteSprite = IconRecolor.White(icon, target);
                     if (kind == PoiKind.Objective && orderObjective != null)
                     {
                         var pillar = PillarOf(target);
                         if (pillar != null)
                         {
                             poi.Pillar = pillar;
-                            poi.GroupKey = group;
                             pillarsWithPointers.Add(pillar.Pointer);
                         }
                     }
@@ -416,15 +467,15 @@ namespace SpellBrigadeMinimap
                         Pois.Add(new Poi
                         {
                             Target = pillar.transform, Kind = PoiKind.Objective, Color = Color.white,
-                            Key = KeyOf(pillar.transform), Pillar = pillar, GroupKey = group,
+                            Key = KeyOf(pillar.transform), Pillar = pillar,
                         });
                     }
             }
             catch (Exception e) { LogOnce.Error("reading the order objective's mushrooms", e); }
         }
 
-        /// <summary>The running order objective (looked up once a second) and its key, or 0.</summary>
-        ulong OrderObjectiveKey()
+        /// <summary>Looks up the running order objective (once a second); null if there is none or it despawned.</summary>
+        void RefreshOrderObjective()
         {
             float now = Time.unscaledTime;
             if (now >= nextOrderLookup)
@@ -439,9 +490,9 @@ namespace SpellBrigadeMinimap
                     Mod.Log.LogInfo($"Order objective found with {(list != null ? list.Count : 0)} mushrooms.");
                 }
             }
-            if (orderObjective == null) return 0;
-            try { return KeyOf(orderObjective.transform); }
-            catch { orderObjective = null; return 0; }
+            if (orderObjective == null) return;
+            try { _ = orderObjective.transform; }
+            catch { orderObjective = null; }
         }
 
         OrderObjectiveInteractable PillarOf(Transform target)
@@ -586,7 +637,87 @@ namespace SpellBrigadeMinimap
             }
         }
 
-        static ulong KeyOf(Transform t)
+        /// <summary>
+        /// Whether the game is drawing this pointer right now. <c>wasShown</c> is the pointer's own record of whether it
+        /// showed itself last frame; it follows the pointer's off-screen and on-screen rules (shown at once, after a
+        /// delay, on a ping and so on). A plain field read, no call into the game.
+        /// </summary>
+        static bool IsShowing(ScreenPointer sp)
+        {
+            try { return sp.wasShown; }
+            catch (Exception e) { LogOnce.Error("reading whether a screen pointer is shown", e); return false; }
+        }
+
+        /// <summary>
+        /// True if the pointer's target is an enemy below boss rank (bosses keep their own icon). Its rank comes back
+        /// in <paramref name="rank"/>, and while the pointer shows, the enemy is listed in <see cref="PointedEnemies"/>.
+        /// </summary>
+        bool TryEnemyPointer(Transform target, bool shown, out EnemyRank rank)
+        {
+            rank = EnemyRank.Small;
+            Enemy enemy;
+            try
+            {
+                IntPtr key = target.Pointer;
+                if (!enemyOfTarget.TryGetValue(key, out enemy) || (enemy is object && enemy == null))
+                {
+                    if (enemyOfTarget.Count > 512) enemyOfTarget.Clear();
+                    enemy = target.GetComponentInParent<Enemy>();
+                    enemyOfTarget[key] = enemy;
+                }
+                if (enemy == null) return false;
+                var info = InfoFor(enemy);
+                rank = ranker.Rank(info.BaseHealth, info.Boss, info.MiniBoss);
+                if (rank == EnemyRank.Boss) return false;
+                if (shown) PointedEnemies.Add(new PointedEnemy { Target = enemy.transform, Rank = rank });
+                return true;
+            }
+            catch (Exception e)
+            {
+                LogOnce.Error("checking whether a pointer is on an enemy", e);
+                return false;
+            }
+        }
+
+        /// <summary>True if the pointer's target is an objective piece: a mushroom, push object, herd animal or statue.</summary>
+        bool IsPieceObject(Transform target)
+        {
+            IntPtr key = target.Pointer;
+            if (pieceObjectTargets.TryGetValue(key, out bool isPiece)) return isPiece;
+            try
+            {
+                isPiece = target.GetComponentInParent<Collectable>() != null || target.GetComponentInParent<HerdingTarget>() != null
+                       || target.GetComponentInParent<PushObjectivePushable>() != null || target.GetComponentInParent<PetrifiedEnemy>() != null;
+            }
+            catch (Exception e)
+            {
+                LogOnce.Error("checking whether a pointer is on an objective piece", e);
+                isPiece = false;
+            }
+            if (pieceObjectTargets.Count > 1024) pieceObjectTargets.Clear();
+            pieceObjectTargets[key] = isPiece;
+            return isPiece;
+        }
+
+        /// <summary>The game's icon on this pointer (its first image with a sprite), or null.</summary>
+        static Sprite FirstIcon(ScreenPointer sp, out Color color)
+        {
+            color = Color.white;
+            var images = sp.iconImages;
+            if (images != null)
+                for (int i = 0; i < images.Count; i++)
+                {
+                    var img = images[i];
+                    if (img != null && img.sprite != null)
+                    {
+                        color = img.color;
+                        return img.sprite;
+                    }
+                }
+            return null;
+        }
+
+        internal static ulong KeyOf(Transform t)
         {
             try
             {
@@ -594,7 +725,12 @@ namespace SpellBrigadeMinimap
                 if (net != null) return net.NetworkObjectId;
             }
             catch (Exception e) { LogOnce.Error("identifying an objective", e); }
-            Vector3 p = t.position;
+            return KeyOfPosition(t.position);
+        }
+
+        /// <summary>A key for something without a NetworkObject that stays put: its rounded position.</summary>
+        internal static ulong KeyOfPosition(Vector3 p)
+        {
             ulong x = (ulong)((long)Math.Round(p.x) & 0xFFFFFFF), z = (ulong)((long)Math.Round(p.z) & 0xFFFFFFF);
             return 0x8000000000000000UL | (x << 28) | z;
         }

@@ -11,17 +11,18 @@ A round minimap in the corner of the screen during runs, framed like the game's 
 
 ## On the map
 
-- **Enemies** as dots that grow with how dangerous they are: **red** for the swarm, **orange** for bigger enemies, **purple** for mini-bosses (elites such as the big snake, the Hydra's four-armed healers, the Hoarder).
+- **Enemies** by how dangerous they are, each rank its own shape and colour, a step bigger than the one before: **red circles** for the swarm, **orange triangles** for bigger enemies, **pink squares** for heavy ones (8x the swarm's health or more, such as the Mole and the ShieldCrab), **purple stars** for mini-bosses (elites such as the big snake, the Hydra's four-armed healers, the Hoarder). When the game points at an enemy from the edge of the screen (after a ping), its shape sticks to the minimap's edge when it's out of range.
 - **Bosses** (Hydra, Squid, Toad) as a skull badge; off the map it sticks to the edge with an arrow.
-- **Objectives** appear once someone in the party has had them on screen; discoveries are shared with everyone running the mod (through the host). **Downed teammates and danger pings** always show.
-- **Pickups** (artifacts, magnets, and larger cream-ringed **health potions**) on dark badges.
+- **Objectives** appear once someone in the party has had them on screen, or as soon as the game points at them from the edge of the screen; off the map they stick to the edge with an arrow. The same goes for every piece of an objective on its own (each mushroom, bonfire, llama, object to push, statue and hunt target), for the push zone and herding pen, for pickups and for Treasure Maps' map pieces. Discoveries are shared with everyone running the mod (through the host). **Downed teammates and danger pings** always show.
+- **Objectives use the game's own icons**, with a dark edge so they read on any ground: blue for most, red for the sacrifice, and the clean objective in its goo's colour.
+- **Pickups** (artifacts, magnets, and larger cream-ringed **health potions**) on dark badges, once found.
 - **Teammates** in their player colours; a dead teammate is a **ghost** in their colour. While you're a ghost yourself, your arrow follows where you move.
 - **Geysers** on the ice map: yellow when ready, orange and shaking while erupting, grey while recharging.
 - **Tornadoes** on the fire map, following them as they move.
 - **Teleport portals** on the astral map: bright cyan when open, faint when closed.
-- **The order objective's mushrooms** in the game's colours: blue while waiting, green when hit in the right order, red when wrong.
-- **Objective pieces**: the collect objective's mushrooms (following them as they run), the objects to push and the animals to herd (with a faint dotted line to their zone, faded once they're in), and the stone enemies to break. The push zone and the herding pen are drawn at their real size, and a counter at the top shows how many are done ("3/8").
-- **Hunt targets** get a red crosshair that follows them, pinned to the edge when they're off the map.
+- **The order objective's bonfires** in the game's colours: blue while waiting, green when lit in the right order, red when wrong.
+- **Objective pieces**, each as the game's own icon: the collect objective's mushrooms in blue (following them as they run), the llamas to herd in blue (faded once in the pen), the objects to push in yellow (blue once in the zone), and the statues to break in grey with blue eyes. Pieces that still have to go somewhere get a faint dotted line to their zone. When the game starts pointing at a piece from the edge of the screen, the minimap pins that piece to its own edge too. The push zone (blue) and the herding pen (green) are drawn at their real size with the game's icon in the middle, and a counter at the top shows how many are done ("3/8"), in the game's own font.
+- **Hunt targets** get the game's hunt icon in gold that follows them, pinned to the edge when they're off the map.
 - **MoreEvents** targets and zones, if that mod is installed.
 - **Treasure Maps hunts** (when that mod is installed): the search circle, map pieces on the ground, and an edge marker when the circle is off the map.
 
@@ -41,7 +42,7 @@ The map turns with the camera, so up on the minimap is up on screen. It moves up
 - `[Layout]` `Corner` (BottomRight), `Shape` (Round / Square), `Size` (220), `Margin` (16), `BottomOffset` (30, room for the text bar), `AvoidGameHud` (true), `Opacity` (0.85)
 - `[Look]` `Style` (Pixelated / Flat), `HighlightObstacles`, `TrimOutsideArena`, `LiftDarkGround`, `ObstacleKeywords`, `TintKeywords`, `PaintFromGameView` (off; experimental)
 - `[View]` `Radius` (40), `MinRadius` (15), `MaxRadius` (120), `RotateWithCamera` (true)
-- `[Layers]` `ShowEnemies`, `BigEnemyHealth` (3: how much tougher than the swarm an enemy must be to show orange), `ShowObjectives`, `ShowPickups`, `ShowTeammates`, `ShowMoreEvents`, `ShowMapFeatures` (geysers, tornadoes, portals), `ShowTreasure` (Treasure Maps hunts), `HideUndiscoveredObjectives` (true)
+- `[Layers]` `ShowEnemies`, `BigEnemyHealth` (3: how much tougher than the swarm an enemy must be to show as an orange triangle), `HeavyEnemyHealth` (8: the same for a pink square), `ShowObjectives`, `ShowPickups`, `ShowTeammates`, `ShowMoreEvents`, `ShowMapFeatures` (geysers, tornadoes, portals), `ShowTreasure` (Treasure Maps hunts), `HideUndiscoveredObjectives` (true: objectives, their pieces, zones, pickups and map pieces only once found)
 - `[Debug]` `SaveDebugImages` (false): saves the pictures behind the minimap to `BepInEx/minimap-debug`
 
 ## Multiplayer
@@ -55,6 +56,7 @@ Install it if you want to see a minimap; nobody else needs it. The only thing it
 
 ## Changelog
 
+- **1.2.0**: everything the game points at from the edge of the screen is on the minimap too. An objective shows as soon as the game points at it (before, it waited until someone had it on screen), and objectives, mushrooms and pieces the game points at stick to the minimap's edge when they're out of range. Enemies get a shape per rank (circle, triangle, square, star) with a new heavy rank (pink squares; setting `HeavyEnemyHealth`), and the game's hidden "!" danger pointers are no longer drawn on enemies. Every objective and piece is drawn with the game's own icon and a dark edge, coloured per objective (blue for most; the herding pen green; objects to push yellow until they're in the zone; statues grey with blue eyes; the hunt target gold; the sacrifice red; the clean objective in its goo's colour). Each piece, zone, pickup and Treasure Maps map piece now stays hidden until someone has had it on screen or the game points at it, one by one (a whole order objective no longer appears when one bonfire is found). The counters use the game's font.
 - **1.1.0**: shows Treasure Maps hunts (search circle and map pieces) when that mod is installed. New setting: `ShowTreasure`.
 - **1.0.2**: objective pieces with guide lines and counters, zones at real size, hunt-target crosshair.
 - **1.0.1**: moves out of the way of the game's HUD in its corner; dead teammates as ghosts in their colour; your arrow turns while you're a ghost; order-objective mushrooms coloured by state; the fire map's arena edge.

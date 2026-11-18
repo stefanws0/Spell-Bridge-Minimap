@@ -15,6 +15,8 @@ namespace SpellBrigadeMinimap
         public NVec2 Center;
         public float Radius;
         public readonly List<NVec2> Pieces = new List<NVec2>();
+        /// <summary>The same pieces in the world (for the found-on-screen check).</summary>
+        public readonly List<Vector3> PiecesWorld = new List<Vector3>();
         public Sprite Icon, Circle;
         public Color Orange = new Color(1f, 0.55f, 0.16f, 1f);
     }
@@ -53,6 +55,7 @@ namespace SpellBrigadeMinimap
         {
             into.Active = false;
             into.Pieces.Clear();
+            into.PiecesWorld.Clear();
             try
             {
                 if (!resolved) Resolve();
@@ -63,7 +66,11 @@ namespace SpellBrigadeMinimap
                 into.Radius = (float)radius.GetValue(null);
                 if (pieces.GetValue(null) is IList list)
                     foreach (object o in list)
-                        if (o is Vector3 p) into.Pieces.Add(new NVec2(p.x, p.z));
+                        if (o is Vector3 p)
+                        {
+                            into.Pieces.Add(new NVec2(p.x, p.z));
+                            into.PiecesWorld.Add(p);
+                        }
                 into.Icon = icon.GetValue(null) as Sprite;
                 into.Circle = circle.GetValue(null) as Sprite;
                 var tint = (Color)orange.GetValue(null);
@@ -74,6 +81,7 @@ namespace SpellBrigadeMinimap
                 available = false;
                 into.Active = false;
                 into.Pieces.Clear();
+                into.PiecesWorld.Clear();
                 LogOnce.Error("reading the treasure hunt (treasure layer turned off)", e);
             }
         }

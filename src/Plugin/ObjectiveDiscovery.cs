@@ -9,8 +9,10 @@ using UnityEngine;
 namespace SpellBrigadeMinimap
 {
     /// <summary>
-    /// Tracks which objectives the party has found, so the minimap only shows those. An objective counts as
-    /// found once it has been on someone's screen. Discoveries go to the host, which relays them to everyone
+    /// Tracks which objectives, and which of their pieces, the party has found, so the minimap only shows those.
+    /// Each one counts as found once it has been on someone's screen, or once the game shows its screen-edge
+    /// pointer at it.
+    /// Discoveries go to the host, which relays them to everyone
     /// (and repeats the full list now and then for late joiners). Players without the mod are unaffected; if
     /// the host doesn't run it, each player only sees what they found themselves.
     /// </summary>
@@ -24,9 +26,12 @@ namespace SpellBrigadeMinimap
         static CustomMessagingManager.HandleNamedMessageDelegate handler; // kept alive for IL2CPP
         static ObjectiveDiscovery current;
 
+        const int MaxFoundLogs = 12;         // per run
+
         readonly DiscoverySet known = new DiscoverySet();
         IntPtr registeredOn;
         float nextRebroadcast;
+        int foundLogs;
 
         public bool IsKnown(ulong key) => known.Contains(key);
 
@@ -34,9 +39,10 @@ namespace SpellBrigadeMinimap
         {
             known.Clear();
             nextRebroadcast = 0f;
+            foundLogs = 0;
         }
 
-        public void Tick(float now, List<Poi> pois)
+        public void Tick(float now, List<Poi> pois, ObjectivePieces pieces)
         {
             current = this;
             NetworkManager nm = null;
@@ -47,21 +53,73 @@ namespace SpellBrigadeMinimap
             }
             catch (Exception e) { LogOnce.Error("setting up objective sharing", e); }
 
+            // Found once it has been on screen, or once the game itself shows its pointer (at the screen edge),
+            // since by then the game has told the player where it is anyway.
             var cam = Camera.main;
-            if (cam != null)
-                foreach (var poi in pois)
-                {
-                    if (poi.Kind != PoiKind.Objective || poi.Target == null || known.Contains(poi.Key)) continue;
-                    if (!OnScreen(cam, poi.Target.position)) continue;
-                    known.Add(poi.Key);
-                    Share(nm, poi.Key.ToString("x"));
-                }
+            // Pickups (artifacts, magnets, potions) too: the game only points at those for the bird mage.
+            foreach (var poi in pois)
+            {
+                bool counts = poi.Kind == PoiKind.Objective || poi.Kind == PoiKind.Pickup || poi.Kind == PoiKind.Health;
+                if (!counts || poi.Target == null || known.Contains(poi.Key)) continue;
+                bool seen = cam != null && OnScreen(cam, poi.Target.position);
+                if (!seen && !poi.Shown) continue;
+                known.Add(poi.Key);
+                if (foundLogs++ < MaxFoundLogs)
+                    Mod.Log.LogInfo($"{poi.Kind} '{poi.Target.name}' found: {(seen ? "on screen" : "the game points at it")}.");
+                Share(nm, poi.Key.ToString("x"));
+            }
+
+            // Every objective's pieces (mushrooms, objects to push, llamas, statues, hunt targets) follow the same
+            // rule, each one on its own: a llama nobody has seen yet stays off the map even when the rest of its herd
+            // is on it.
+            foreach (var piece in pieces.Pieces) TryFind(piece, pieces, cam, nm);
+            foreach (var piece in pieces.HuntTargets) TryFind(piece, pieces, cam, nm);
+
+            // A push zone or herding pen: found with its objective (same key), or once it has been on screen itself.
+            foreach (var zone in pieces.Zones)
+            {
+                if (known.Contains(zone.Key) || cam == null || !OnScreen(cam, zone.World)) continue;
+                known.Add(zone.Key);
+                if (foundLogs++ < MaxFoundLogs)
+                    Mod.Log.LogInfo($"{(zone.Icon == GameIcons.PushZone ? "Push zone" : "Herding pen")} found: on screen.");
+                Share(nm, zone.Key.ToString("x"));
+            }
 
             if (Hosting(nm) && known.Count > 0 && now >= nextRebroadcast)
             {
                 nextRebroadcast = now + RebroadcastSeconds;
                 Send(nm, known.Serialize(), toServer: false);
             }
+        }
+
+        /// <summary>Treasure Maps' map pieces on the ground: found once someone has had them on screen.</summary>
+        public void TickTreasure(TreasureView treasure)
+        {
+            if (treasure.PiecesWorld.Count == 0) return;
+            NetworkManager nm = null;
+            try { nm = NetworkManager.Singleton; }
+            catch { }
+            var cam = Camera.main;
+            if (cam == null) return;
+            foreach (var world in treasure.PiecesWorld)
+            {
+                ulong key = WorldScanner.KeyOfPosition(world);
+                if (known.Contains(key) || !OnScreen(cam, world)) continue;
+                known.Add(key);
+                if (foundLogs++ < MaxFoundLogs) Mod.Log.LogInfo($"Treasure map piece at {world.x:0},{world.z:0} found: on screen.");
+                Share(nm, key.ToString("x"));
+            }
+        }
+
+        void TryFind(Piece piece, ObjectivePieces pieces, Camera cam, NetworkManager nm)
+        {
+            if (piece.Target == null || known.Contains(piece.Key)) return;
+            bool seen = cam != null && OnScreen(cam, piece.Target.position);
+            if (!seen && !pieces.IsPointedAt(piece.Target)) return;
+            known.Add(piece.Key);
+            if (foundLogs++ < MaxFoundLogs)
+                Mod.Log.LogInfo($"{piece.Kind} '{piece.Target.name}' found: {(seen ? "on screen" : "the game points at it")}.");
+            Share(nm, piece.Key.ToString("x"));
         }
 
         static bool OnScreen(Camera cam, Vector3 world)

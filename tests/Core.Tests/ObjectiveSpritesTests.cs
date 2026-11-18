@@ -31,13 +31,15 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal((byte)0, img.GetPixel(32, 60).A, "gap above the middle toes");
         }
 
-        public static void StoneIsGreyWithACrack()
+        public static void StatueIsAGreyBustOnAPlinth()
         {
-            var img = ShapeSprites.Stone(64);
+            var img = ShapeSprites.Statue(64);
             Check.Equal((byte)0, img.GetPixel(1, 1).A, "clear corner");
-            Rgba grey = img.GetPixel(42, 32);
-            Check.True(grey.R > 120 && grey.R < 190 && System.Math.Abs(grey.R - grey.B) < 20, $"grey stone: {grey}");
-            Check.True(img.GetPixel(33, 32).R < 60, "dark crack through the middle");
+            Rgba head = img.GetPixel(27, 45);
+            Check.True(head.R > 120 && head.R < 220 && System.Math.Abs(head.R - head.B) < 20, $"grey head: {head}");
+            Check.Equal((byte)0, img.GetPixel(17, 41).A, "clear beside the head, above the shoulders");
+            Check.True(img.GetPixel(32, 11).A == 255 && img.GetPixel(32, 11).R < 140, "shaded plinth");
+            Check.True(img.GetPixel(33, 41).R < 60, "dark crack through the head");
         }
 
         public static void CrosshairIsARedRingWithTicksAndAnOpenMiddle()

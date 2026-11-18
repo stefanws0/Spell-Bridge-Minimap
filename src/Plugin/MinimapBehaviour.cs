@@ -67,7 +67,7 @@ namespace SpellBrigadeMinimap
 
             scanner.SkipPointerName = treasureBridge.Available ? treasureBridge.PointerTargetName : null;
             scanner.Tick(now, cfg.ShowEnemies.Value, cfg.ShowObjectives.Value || cfg.ShowPickups.Value, cfg.ShowMapFeatures.Value);
-            discovery.Tick(now, scanner.Pois);
+            discovery.Tick(now, scanner.Pois, scanner.Objectives);
 
             // Map the level as early as possible: from the player (even mid-air while dropping in), or from a
             // spawn point in the level if the player hasn't appeared yet.
@@ -96,7 +96,9 @@ namespace SpellBrigadeMinimap
             {
                 treasure.Active = false;
                 treasure.Pieces.Clear();
+                treasure.PiecesWorld.Clear();
             }
+            discovery.TickTreasure(treasure);
 
             view.SetVisible(true);
             view.Render(scanner, markers, treasure, discovery, cfg.RotateWithCamera.Value ? CameraYaw() : 0f, radius);

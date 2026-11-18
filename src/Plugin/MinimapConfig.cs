@@ -16,7 +16,7 @@ namespace SpellBrigadeMinimap
         public readonly ConfigEntry<bool> HighlightObstacles, TrimOutsideArena, PaintFromGameView, LiftDarkGround;
         public readonly ConfigEntry<string> ObstacleKeywords, TintKeywords;
         public readonly ConfigEntry<float> Size, Margin, BottomOffset, Opacity;
-        public readonly ConfigEntry<float> Radius, MinRadius, MaxRadius, BigEnemyHealth;
+        public readonly ConfigEntry<float> Radius, MinRadius, MaxRadius, BigEnemyHealth, HeavyEnemyHealth;
         public readonly ConfigEntry<bool> RotateWithCamera, AvoidGameHud;
         public readonly ConfigEntry<bool> ShowEnemies, ShowObjectives, ShowPickups, ShowTeammates, ShowMoreEvents, ShowMapFeatures, ShowTreasure;
         public readonly ConfigEntry<bool> HideUndiscoveredObjectives, SaveDebugImages;
@@ -55,17 +55,20 @@ namespace SpellBrigadeMinimap
             MaxRadius = f.Bind("View", "MaxRadius", 120f, new ConfigDescription("Farthest zoom (world units).", new AcceptableValueRange<float>(5f, 1000f)));
             RotateWithCamera = f.Bind("View", "RotateWithCamera", true, "Turn the map so up on the minimap is up on screen. Off = world-fixed.");
 
-            ShowEnemies = f.Bind("Layers", "ShowEnemies", true, "Enemy dots: red for small enemies, orange for bigger ones, purple for mini-bosses (elites, the Hydra's healers, the Hoarder); bosses get their own icon.");
+            ShowEnemies = f.Bind("Layers", "ShowEnemies", true, "Enemies by rank: red circles for the swarm, orange triangles for bigger ones, pink squares for heavy ones, purple stars for mini-bosses (elites, the Hydra's healers, the Hoarder); bosses get their own icon.");
             BigEnemyHealth = f.Bind("Layers", "BigEnemyHealth", 3f, new ConfigDescription(
                 "An enemy is drawn as a bigger (orange) one when its base health is at least this many times that of the swarm (the weakest common enemy).",
                 new AcceptableValueRange<float>(1.5f, 50f)));
+            HeavyEnemyHealth = f.Bind("Layers", "HeavyEnemyHealth", 8f, new ConfigDescription(
+                "An enemy is drawn as a heavy one (pink square) when its base health is at least this many times that of the swarm. Should be more than BigEnemyHealth.",
+                new AcceptableValueRange<float>(2f, 100f)));
             ShowObjectives = f.Bind("Layers", "ShowObjectives", true, "Objectives, the boss, downed teammates and danger pings.");
             ShowPickups = f.Bind("Layers", "ShowPickups", true, "Artifact, health and magnet pickups the game points at.");
             ShowTeammates = f.Bind("Layers", "ShowTeammates", true, "Other players.");
             ShowMoreEvents = f.Bind("Layers", "ShowMoreEvents", true, "MoreEvents targets and zones (only when MoreEvents is installed).");
             ShowMapFeatures = f.Bind("Layers", "ShowMapFeatures", true, "Geysers on the ice map (yellow bursts), tornadoes on the fire map (following them as they move) and teleport portals (bright when open).");
             ShowTreasure = f.Bind("Layers", "ShowTreasure", true, "Treasure Maps hunts: the search circle and map pieces on the ground (only when Treasure Maps is installed).");
-            HideUndiscoveredObjectives = f.Bind("Layers", "HideUndiscoveredObjectives", true, "Only show an objective once someone in the party has had it on screen. Discoveries are shared with other players who run this mod, through the host.");
+            HideUndiscoveredObjectives = f.Bind("Layers", "HideUndiscoveredObjectives", true, "Only show an objective, each of its pieces (every mushroom, object to push, llama, statue and hunt target on its own), its zone or pen, and each pickup (artifacts, magnets, potions) and treasure map piece, once someone in the party has had it on screen, or once the game points at it from the edge of the screen. Discoveries are shared with other players who run this mod, through the host.");
 
             SaveDebugImages = f.Bind("Debug", "SaveDebugImages", false, "Save the level picture, the game-view colour sample and the finished minimap as PNGs in BepInEx/minimap-debug each run.");
         }

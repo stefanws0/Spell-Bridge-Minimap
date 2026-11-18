@@ -6,7 +6,7 @@ namespace SpellBrigadeMinimap.Tests
     {
         static EnemyRanker WithSwarm()
         {
-            var r = new EnemyRanker(bigFactor: 3f, minCount: 5);
+            var r = new EnemyRanker(bigFactor: 3f, heavyFactor: 8f, minCount: 5);
             for (int i = 0; i < 10; i++) r.Observe(1, 10f);   // the swarm
             for (int i = 0; i < 2; i++) r.Observe(2, 50f);    // a few big ones
             r.EndScan();
@@ -38,6 +38,19 @@ namespace SpellBrigadeMinimap.Tests
             Check.Equal(10f, r.SwarmHealth, "a later wave of tougher enemies doesn't raise it");
         }
 
+        public static void EnemiesWithEightTimesTheSwarmsHealthAreHeavy()
+        {
+            // The grass world's numbers: swarm 154; Snipjaw 700 and TeethyWorm 900 big; Mole 1500, ShieldCrab 3500 heavy.
+            var r = new EnemyRanker(3f, 8f, 5);
+            for (int i = 0; i < 10; i++) r.Observe(1, 154f);
+            r.EndScan();
+            Check.Equal(EnemyRank.Big, r.Rank(700f, false, false), "Snipjaw");
+            Check.Equal(EnemyRank.Big, r.Rank(900f, false, false), "TeethyWorm");
+            Check.Equal(EnemyRank.Heavy, r.Rank(1500f, false, false), "Mole");
+            Check.Equal(EnemyRank.Heavy, r.Rank(3500f, false, false), "ShieldCrab");
+            Check.Equal(EnemyRank.MiniBoss, r.Rank(3000f, false, true), "an elite stays a mini-boss");
+        }
+
         public static void BossesAndMiniBossesComeFirst()
         {
             var r = WithSwarm();
@@ -47,7 +60,7 @@ namespace SpellBrigadeMinimap.Tests
 
         public static void EverythingIsSmallUntilTheSwarmIsKnown()
         {
-            var r = new EnemyRanker(3f, 5);
+            var r = new EnemyRanker(3f, 8f, 5);
             r.Observe(1, 10f);
             r.EndScan();
             Check.Equal(EnemyRank.Small, r.Rank(500f, false, false), "no swarm seen yet");

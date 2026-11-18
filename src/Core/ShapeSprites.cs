@@ -183,6 +183,42 @@ namespace SpellBrigadeMinimap.Core
             return v >= bottom;
         }
 
+        /// <summary>A white capsule (a pill), <paramref name="width"/> x <paramref name="height"/>, anti-aliased; the UI tints it.</summary>
+        public static PixelBuffer Pill(int width, int height)
+        {
+            var img = new PixelBuffer(width, height);
+            float r = height * 0.5f, x0 = r, x1 = Math.Max(r, width - r);
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    int inside = 0;
+                    for (int sy = 0; sy < Samples; sy++)
+                        for (int sx = 0; sx < Samples; sx++)
+                        {
+                            float px = x + (sx + 0.5f) / Samples, py = y + (sy + 0.5f) / Samples;
+                            float dx = px < x0 ? px - x0 : px > x1 ? px - x1 : 0f, dy = py - r;
+                            if (dx * dx + dy * dy <= r * r) inside++;
+                        }
+                    if (inside > 0) img.SetPixel(x, y, new Rgba(255, 255, 255, (byte)(255 * inside / (Samples * Samples))));
+                }
+            return img;
+        }
+
+        /// <summary>
+        /// An enemy rank's mark (see <see cref="EnemyMarks"/>) as an icon: white so the UI tints it in the rank's
+        /// colour, with a dark outline. Used where an enemy is pinned to the minimap's edge.
+        /// </summary>
+        public static PixelBuffer EnemyMark(int size, EnemyShape shape)
+        {
+            float r = shape == EnemyShape.Circle ? 0.36f : 0.42f, grow = 0.07f;
+            return Render(size, (u, v) =>
+            {
+                float dx = u - 0.5f, dy = v - 0.5f;
+                if (EnemyMarks.Inside(shape, dx, dy, r, 0f)) return Rgba.White;
+                return EnemyMarks.Inside(shape, dx, dy, r, grow) ? Border : Rgba.Clear;
+            });
+        }
+
         // ---- objective pieces -------------------------------------------------------------------------------
 
         static readonly Rgba CapRed = new Rgba(214, 58, 64, 255);
@@ -190,6 +226,8 @@ namespace SpellBrigadeMinimap.Core
         static readonly Rgba Wood = new Rgba(186, 132, 78, 255);
         static readonly Rgba Plank = new Rgba(120, 80, 40, 255);
         static readonly Rgba StoneGrey = new Rgba(150, 152, 160, 255);
+        static readonly Rgba StoneLight = new Rgba(196, 198, 206, 255);
+        static readonly Rgba StoneDark = new Rgba(104, 106, 116, 255);
         static readonly Rgba HuntRed = new Rgba(255, 70, 60, 255);
 
         /// <summary>Outlined shape: <paramref name="fill"/> inside, a dark border <paramref name="t"/> wide.</summary>
@@ -235,19 +273,23 @@ namespace SpellBrigadeMinimap.Core
                 || Dist(u, v, 0.59f, 0.75f) < 0.11f || Dist(u, v, 0.75f, 0.6f) < 0.11f;
         }
 
-        /// <summary>A petrified enemy to break: a grey stone with a crack.</summary>
-        public static PixelBuffer Stone(int size) => Outlined(size, InStone, (u, v) =>
+        /// <summary>
+        /// A petrified enemy to break: a stone bust on a plinth (head, shoulders, base) with a crack through the
+        /// head, lit from the top left. Option 1 of docs/previews/statue-options.png.
+        /// </summary>
+        public static PixelBuffer Statue(int size) => Outlined(size, InStatue, (u, v) =>
         {
-            bool crack = SegmentDistance(u, v, 0.44f, 0.82f, 0.54f, 0.56f) < 0.035f
-                      || SegmentDistance(u, v, 0.54f, 0.56f, 0.48f, 0.3f) < 0.035f;
-            return crack ? Border : StoneGrey;
+            if (SegmentDistance(u, v, 0.56f, 0.86f, 0.5f, 0.7f) < 0.025f || SegmentDistance(u, v, 0.5f, 0.7f, 0.55f, 0.58f) < 0.025f)
+                return Border;                                                      // the crack
+            if (v < 0.3f && v > 0.27f) return StoneDark;                           // the plinth's top edge
+            float k = (u - 0.5f) - (v - 0.5f);
+            return k < -0.18f ? StoneLight : k > 0.2f ? StoneDark : StoneGrey;
         }, 0.06f);
 
-        static bool InStone(float u, float v)
-        {
-            float dx = Math.Abs(u - 0.5f), dy = Math.Abs(v - 0.5f);
-            return Math.Max(dx * 0.866f + dy * 0.5f, dy) <= 0.4f;                  // a hexagon
-        }
+        static bool InStatue(float u, float v) =>
+            Dist(u, v, 0.5f, 0.7f) < 0.17f                                          // head
+            || RoundBox(u, v, 0.25f, 0.3f, 0.75f, 0.56f, 0.12f)                     // shoulders
+            || RoundBox(u, v, 0.2f, 0.08f, 0.8f, 0.3f, 0.03f);                      // plinth
 
         /// <summary>A hunt target: a red ring with four ticks and an open middle (the enemy's dot shows through).</summary>
         public static PixelBuffer Crosshair(int size) => Render(size, (u, v) =>
